@@ -538,6 +538,27 @@ toggleGenerationBtn.addEventListener("click", async () => {
 
 			statusDiv.textContent = "Generation stopped";
 		} else {
+			// Check API availability before starting generation
+			const geminiTested = await checkGeminiTestedStatus();
+			let canProceed = false;
+
+			if (geminiTested) {
+				canProceed = true;
+			} else if ("Summarizer" in self) {
+				try {
+					const avail = await self.Summarizer.availability();
+					canProceed = avail === "available";
+				} catch (e) {
+					canProceed = false;
+				}
+			}
+
+			if (!canProceed) {
+				showSettingsButton("AI not available. Please configure API in settings.");
+				toggleGenerationBtn.disabled = false;
+				return;
+			}
+
 			// Start generation
 			chrome.tabs.sendMessage(tab.id, {
 				type: "START_SUMMARIZATION",
@@ -603,22 +624,64 @@ stopAllBtn.addEventListener("click", async () => {
 
 // Check API availability
 async function checkAPIStatus() {
+	// First check if Gemini API key has been tested successfully
+	const geminiTested = await checkGeminiTestedStatus();
+	
+	if (geminiTested) {
+		// If Gemini has been tested successfully, use it and clear any errors
+		await switchToGeminiProvider();
+		statusDiv.textContent = "Using Gemini API";
+		return;
+	}
+
+	// Check Chrome AI availability
 	if ("Summarizer" in self) {
 		try {
 			const avail = await self.Summarizer.availability();
 			if (avail === "available") {
 				statusDiv.textContent = "AI Summarizer Ready";
 			} else if (avail === "downloadable") {
-				statusDiv.textContent = "Downloading AI model...";
+				// Show button to go to settings instead of downloading
+				showSettingsButton("AI model available for download. Configure in settings.");
 			} else {
-				statusDiv.textContent = "AI Summarizer Unavailable";
+				showSettingsButton("AI Summarizer Unavailable. Configure alternative API in settings.");
 			}
 		} catch (e) {
-			statusDiv.textContent = "AI Summarizer Error";
+			showSettingsButton("AI Summarizer Error. Configure alternative API in settings.");
 		}
 	} else {
-		statusDiv.textContent = "AI Summarizer Not Supported";
+		showSettingsButton("AI Summarizer Not Supported. Configure alternative API in settings.");
 	}
+}
+
+function showSettingsButton(message) {
+	statusDiv.innerHTML = `
+		<span>${message}</span>
+		<button id="go-to-settings" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;">
+			Settings
+		</button>
+	`;
+	
+	// Add event listener to the button
+	document.getElementById("go-to-settings").addEventListener("click", () => {
+		chrome.runtime.openOptionsPage();
+	});
+}
+
+async function checkGeminiTestedStatus() {
+	return new Promise((resolve) => {
+		chrome.storage.sync.get(["geminiApiTested"], (result) => {
+			resolve(result.geminiApiTested === true);
+		});
+	});
+}
+
+async function switchToGeminiProvider() {
+	return new Promise((resolve) => {
+		chrome.storage.sync.set({ apiProvider: "gemini" }, () => {
+			resolve();
+		});
+	});
 }
 
 checkAPIStatus();
@@ -672,9 +735,10 @@ chrome.runtime.onMessage.addListener((msg) => {
 	}
 });
 
-// Update status periodically
-setInterval(() => {
-	if (summaries.length > 0) {
-		statusDiv.textContent = `${summaries.length} summaries`;
+// Listen for storage changes to update API status
+chrome.storage.onChanged.addListener((changes, namespace) => {
+	if (namespace === "sync" && (changes.apiProvider || changes.geminiApiTested)) {
+		// Re-check API status when provider or test status changes
+		checkAPIStatus();
 	}
-}, 5000);
+});

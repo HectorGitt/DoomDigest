@@ -67,6 +67,13 @@ document.addEventListener("DOMContentLoaded", function () {
 		saveSettings();
 	});
 
+	// Clear Gemini tested status when API key changes
+	geminiApiKey.addEventListener("input", () => {
+		if (geminiApiKey.value.trim() !== "") {
+			chrome.storage.sync.remove(["geminiApiTested"]);
+		}
+	});
+
 	// Export buttons
 	exportTxtBtn.addEventListener("click", () => exportDigest("txt"));
 	exportMdBtn.addEventListener("click", () => exportDigest("md"));
@@ -423,6 +430,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
 			if (text) {
 				showTestResult(geminiTestResult, "API key is valid", "success");
+				// Mark Gemini API as tested successfully
+				chrome.storage.sync.set({ geminiApiTested: true });
 			} else {
 				showTestResult(
 					geminiTestResult,
@@ -436,6 +445,8 @@ document.addEventListener("DOMContentLoaded", function () {
 				`API test failed: ${e.message}`,
 				"error"
 			);
+			// Clear tested status on failure
+			chrome.storage.sync.remove(["geminiApiTested"]);
 		} finally {
 			testGeminiBtn.disabled = false;
 			testGeminiBtn.textContent = "Test";
