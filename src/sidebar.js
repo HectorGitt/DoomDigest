@@ -53,47 +53,6 @@ async function applyWebsiteColors() {
 	}
 }
 
-// Get website colors and apply to sidebar
-async function applyWebsiteColors() {
-	try {
-		const [tab] = await chrome.tabs.query({
-			active: true,
-			currentWindow: true,
-		});
-		if (!tab) return;
-
-		const result = await chrome.scripting.executeScript({
-			target: { tabId: tab.id },
-			function: () => {
-				const body = document.body;
-				const computedStyle = window.getComputedStyle(body);
-				const bgColor = computedStyle.backgroundColor;
-				const textColor = computedStyle.color;
-
-				// Simple brightness calculation to determine if it's a dark or light theme
-				const rgb = bgColor.match(/\d+/g);
-				if (rgb) {
-					const brightness =
-						(parseInt(rgb[0]) * 299 +
-							parseInt(rgb[1]) * 587 +
-							parseInt(rgb[2]) * 114) /
-						1000;
-					return brightness < 128 ? "dark" : "light";
-				}
-				return "light"; // fallback
-			},
-		});
-
-		if (result && result[0]) {
-			const theme = result[0].result;
-			applyThemeToSidebar(theme);
-		}
-	} catch (e) {
-		console.log("Could not get website theme:", e);
-		applyThemeToSidebar("light"); // fallback
-	}
-}
-
 function applyThemeToSidebar(theme) {
 	// Remove existing theme styles
 	const existingStyle = document.getElementById("dynamic-theme");

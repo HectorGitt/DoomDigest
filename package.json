@@ -1,0 +1,16 @@
+{
+	"name": "doomdigest",
+	"version": "1.0.0",
+	"type": "module",
+	"scripts": {
+		"build": "rollup -c",
+		"dev": "rollup -c -w"
+	},
+	"private": true,
+	"devDependencies": {
+		"@rollup/plugin-node-resolve": "^16.0.3",
+		"@rollup/rollup-win32-x64-msvc": "^4.52.3",
+		"rollup": "^4.52.5",
+		"rollup-plugin-copy": "^3.5.0"
+	}
+}
