@@ -163,7 +163,13 @@ async function handleRewriteText(text) {
 		const settings = await chrome.storage.sync.get([
 			"apiProvider",
 			"geminiApiKey",
+			"geminiApiTested",
 		]);
+
+		// Prioritize Gemini if it has been tested successfully
+		if (settings.geminiApiTested && settings.geminiApiKey) {
+			return await rewriteWithGemini(text);
+		}
 
 		const provider = settings.apiProvider || "chrome-ai";
 
@@ -188,7 +194,13 @@ async function handleSimplifyText(text) {
 		const settings = await chrome.storage.sync.get([
 			"apiProvider",
 			"geminiApiKey",
+			"geminiApiTested",
 		]);
+
+		// Prioritize Gemini if it has been tested successfully
+		if (settings.geminiApiTested && settings.geminiApiKey) {
+			return await simplifyWithGemini(text, settings.geminiApiKey);
+		}
 
 		const provider = settings.apiProvider || "chrome-ai";
 

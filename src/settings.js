@@ -119,6 +119,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				"autoSummarize",
 				"smartTopics",
 				"showAdvancedAiStatus",
+				"geminiApiTested",
 			],
 			function (result) {
 				apiProviderSelect.value = result.apiProvider || "chrome-ai";
@@ -129,6 +130,11 @@ document.addEventListener("DOMContentLoaded", function () {
 				smartTopics.checked = result.smartTopics !== false;
 				showAdvancedAiStatus.checked =
 					result.showAdvancedAiStatus || false;
+
+				// If Gemini API has been tested successfully, prioritize it
+				if (result.geminiApiTested && result.geminiApiKey) {
+					apiProviderSelect.value = "gemini";
+				}
 
 				// Apply settings after loading
 				toggleApiSettings(apiProviderSelect.value);
@@ -150,19 +156,21 @@ document.addEventListener("DOMContentLoaded", function () {
 	}
 
 	function toggleApiSettings(provider) {
-		// Show only the panels relevant to the selected provider.
-		geminiSettings.style.display = provider === "gemini" ? "block" : "none";
-		document.getElementById("chrome-ai-status").style.display =
-			provider === "chrome-ai" ? "block" : "none";
-		document.getElementById("show-advanced-status").style.display =
-			provider === "chrome-ai" ? "block" : "none";
-		// Show advanced AI status panels only when Chrome AI is selected AND toggle is checked
-		const showAdvanced =
-			provider === "chrome-ai" && showAdvancedAiStatus.checked;
+		// Always show Chrome AI status panels for reference
+		document.getElementById("chrome-ai-status").style.display = "block";
+		document.getElementById("show-advanced-status").style.display = "block";
+
+		// Show advanced AI status panels when toggle is checked (regardless of provider)
+		const showAdvanced = showAdvancedAiStatus.checked;
 		document.getElementById("rewriter-api-status").style.display =
 			showAdvanced ? "block" : "none";
 		document.getElementById("prompt-api-status").style.display =
 			showAdvanced ? "block" : "none";
+
+		// Show Gemini settings when Gemini is selected OR when API key exists
+		const hasGeminiKey = geminiApiKey.value.trim().length > 0;
+		geminiSettings.style.display =
+			provider === "gemini" || hasGeminiKey ? "block" : "none";
 	}
 
 	async function checkChromeAIStatus() {
@@ -430,8 +438,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
 			if (text) {
 				showTestResult(geminiTestResult, "API key is valid", "success");
-				// Mark Gemini API as tested successfully
-				chrome.storage.sync.set({ geminiApiTested: true });
+				// Mark Gemini API as tested successfully and switch to Gemini
+				chrome.storage.sync.set({ geminiApiTested: true }, () => {
+					// Automatically switch to Gemini provider
+					apiProviderSelect.value = "gemini";
+					saveSettings();
+					toggleApiSettings("gemini");
+				});
 			} else {
 				showTestResult(
 					geminiTestResult,

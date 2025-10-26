@@ -642,14 +642,10 @@ async function checkAPIStatus() {
 			const avail = await self.Summarizer.availability();
 			if (avail === "available") {
 				statusDiv.textContent = "AI Summarizer Ready";
-			} else if (avail === "downloadable") {
+			} else {
 				// Show button to go to settings instead of downloading
 				showSettingsButton(
-					"AI model available for download. Configure in settings."
-				);
-			} else {
-				showSettingsButton(
-					"AI Summarizer Unavailable. Configure alternative API in settings."
+					"AI model not ready. Configure API in settings."
 				);
 			}
 		} catch (e) {
