@@ -4,6 +4,10 @@
 		<meta charset="UTF-8" />
 		<title>DoomDigest - Auto Summarizer</title>
 		<link rel="stylesheet" href="sidebar.css" />
+		<link
+			href="https://fonts.googleapis.com/icon?family=Material+Icons"
+			rel="stylesheet"
+		/>
 	</head>
 	<body>
 		<div id="sidebar">
@@ -17,13 +21,20 @@
 					</select>
 					<div id="generation-controls">
 						<button id="toggle-generation-btn">
-							Start Generation
+							<span class="material-icons">play_arrow</span>
+							<span>Start Generation</span>
 						</button>
 					</div>
 				</div>
 				<div id="action-controls">
-					<button id="stop-all-btn">Stop All</button>
-					<button id="clear-btn">Clear All</button>
+					<button id="stop-all-btn">
+						<span class="material-icons">stop</span>
+						<span>Stop All</span>
+					</button>
+					<button id="clear-btn">
+						<span class="material-icons">clear_all</span>
+						<span>Clear All</span>
+					</button>
 				</div>
 			</div>
 			<div id="status">Initializing...</div>

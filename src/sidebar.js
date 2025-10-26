@@ -12,6 +12,32 @@ let activeSummarizations = 0; // Track number of active summarizations
 let isGenerationActive = false; // Track if generation is currently active
 let siteGroups = {}; // Group summaries by hostname
 
+// Helper function to update toggle button with icon and text
+function updateToggleButton(isActive) {
+	const iconSpan = toggleGenerationBtn.querySelector(".material-icons");
+	const textSpan = document.createElement("span");
+
+	if (isActive) {
+		iconSpan.textContent = "stop";
+		textSpan.textContent = "Stop";
+		toggleGenerationBtn.className = "stop-mode";
+	} else {
+		iconSpan.textContent = "play_arrow";
+		textSpan.textContent = "Start";
+		toggleGenerationBtn.className = "start-mode";
+	}
+
+	// Replace text content while keeping the icon
+	const existingText = toggleGenerationBtn.querySelector(
+		"span:not(.material-icons)"
+	);
+	if (existingText) {
+		existingText.textContent = textSpan.textContent;
+	} else {
+		toggleGenerationBtn.appendChild(textSpan);
+	}
+}
+
 // Get website colors and apply to sidebar
 async function applyWebsiteColors() {
 	try {
@@ -468,8 +494,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			// Reset active summarizations counter
 			activeSummarizations = 0;
 			isGenerationActive = false;
-			toggleGenerationBtn.textContent = "Start Generation";
-			toggleGenerationBtn.className = "start-mode";
+			updateToggleButton(false);
 			renderGroupedSummaries();
 
 			statusDiv.textContent = "Generation stopped";
@@ -482,8 +507,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			});
 
 			isGenerationActive = true;
-			toggleGenerationBtn.textContent = "Stop Generation";
-			toggleGenerationBtn.className = "stop-mode";
+			updateToggleButton(true);
 
 			statusDiv.textContent = "Starting summarization...";
 		}
@@ -522,8 +546,7 @@ stopAllBtn.addEventListener("click", async () => {
 		activeSummarizations = 0;
 		isGenerationActive = false;
 		allowNewGenerations = false;
-		toggleGenerationBtn.textContent = "Start Generation";
-		toggleGenerationBtn.className = "start-mode";
+		updateToggleButton(false);
 		renderGroupedSummaries();
 
 		statusDiv.textContent =
@@ -573,8 +596,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 			// Reset toggle button if generation is complete
 			if (isGenerationActive) {
 				isGenerationActive = false;
-				toggleGenerationBtn.textContent = "Start Generation";
-				toggleGenerationBtn.className = "start-mode";
+				updateToggleButton(false);
 			}
 		}
 

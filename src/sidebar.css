@@ -10,6 +10,26 @@ body {
 	min-height: 100vh;
 }
 
+/* Material Icons Styles */
+.material-icons {
+	font-family: "Material Icons";
+	font-weight: normal;
+	font-style: normal;
+	font-size: 16px;
+	line-height: 1;
+	letter-spacing: normal;
+	text-transform: none;
+	display: inline-block;
+	white-space: nowrap;
+	word-wrap: normal;
+	direction: ltr;
+	-webkit-font-smoothing: antialiased;
+	text-rendering: optimizeLegibility;
+	-moz-osx-font-smoothing: grayscale;
+	margin-right: 4px;
+	vertical-align: middle;
+}
+
 #sidebar {
 	padding: 15px;
 	min-height: 100vh;
