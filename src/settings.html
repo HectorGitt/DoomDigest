@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<title>DoomDigest Settings</title>
+		<link
+			href="https://fonts.googleapis.com/icon?family=Material+Icons"
+			rel="stylesheet"
+		/>
+		<style>
+			body {
+				font-family: -apple-system, BlinkMacSystemFont, "Segoe UI",
+					Roboto, sans-serif;
+				margin: 0;
+				padding: 20px;
+				background: #f5f5f5;
+				color: #333;
+				max-width: 800px;
+				margin: 0 auto;
+			}
+
+			.header {
+				text-align: center;
+				margin-bottom: 30px;
+				padding-bottom: 20px;
+				border-bottom: 2px solid #e0e0e0;
+			}
+
+			.header h1 {
+				margin: 0;
+				color: #2563eb;
+				font-size: 28px;
+			}
+
+			.header p {
+				margin: 5px 0 0 0;
+				color: #666;
+				font-size: 14px;
+			}
+
+			.settings-section {
+				background: white;
+				border-radius: 8px;
+				padding: 20px;
+				margin-bottom: 20px;
+				box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+			}
+
+			.settings-section h2 {
+				margin: 0 0 15px 0;
+				color: #1f2937;
+				font-size: 18px;
+				display: flex;
+				align-items: center;
+				gap: 8px;
+			}
+
+			.setting-group {
+				margin-bottom: 20px;
+				padding-bottom: 15px;
+				border-bottom: 1px solid #e5e7eb;
+			}
+
+			.setting-group:last-child {
+				border-bottom: none;
+				margin-bottom: 0;
+				padding-bottom: 0;
+			}
+
+			.setting-item {
+				display: flex;
+				align-items: center;
+				justify-content: space-between;
+				padding: 10px 0;
+			}
+
+			.setting-info {
+				flex: 1;
+			}
+
+			.setting-info label {
+				display: block;
+				font-weight: 500;
+				margin-bottom: 2px;
+				color: #374151;
+			}
+
+			.setting-info .description {
+				color: #6b7280;
+				font-size: 13px;
+				margin: 0;
+			}
+
+			.setting-control {
+				display: flex;
+				align-items: center;
+				gap: 10px;
+			}
+
+			select,
+			input[type="text"],
+			input[type="password"] {
+				padding: 8px 12px;
+				border: 1px solid #d1d5db;
+				border-radius: 6px;
+				font-size: 14px;
+				min-width: 200px;
+			}
+
+			select:focus,
+			input:focus {
+				outline: none;
+				border-color: #2563eb;
+				box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+			}
+
+			.status-indicator {
+				display: inline-flex;
+				align-items: center;
+				gap: 6px;
+				padding: 4px 8px;
+				border-radius: 12px;
+				font-size: 12px;
+				font-weight: 500;
+			}
+
+			.status-indicator.ready {
+				background: rgba(34, 197, 94, 0.1);
+				color: #16a34a;
+			}
+
+			.status-indicator.downloading {
+				background: rgba(251, 191, 36, 0.1);
+				color: #d97706;
+			}
+
+			.status-indicator.error {
+				background: rgba(239, 68, 68, 0.1);
+				color: #dc2626;
+			}
+
+			.status-indicator.unavailable {
+				background: rgba(156, 163, 175, 0.1);
+				color: #6b7280;
+			}
+
+			button {
+				background: #2563eb;
+				color: white;
+				border: none;
+				padding: 8px 16px;
+				border-radius: 6px;
+				cursor: pointer;
+				font-size: 14px;
+				font-weight: 500;
+				transition: background-color 0.2s;
+			}
+
+			button:hover {
+				background: #1d4ed8;
+			}
+
+			button.secondary {
+				background: #6b7280;
+			}
+
+			button.secondary:hover {
+				background: #4b5563;
+			}
+
+			.api-test-result {
+				margin-top: 8px;
+				padding: 8px 12px;
+				border-radius: 4px;
+				font-size: 13px;
+			}
+
+			.api-test-result.success {
+				background: rgba(34, 197, 94, 0.1);
+				color: #16a34a;
+				border: 1px solid rgba(34, 197, 94, 0.2);
+			}
+
+			.api-test-result.error {
+				background: rgba(239, 68, 68, 0.1);
+				color: #dc2626;
+				border: 1px solid rgba(239, 68, 68, 0.2);
+			}
+
+			.export-section {
+				margin-top: 20px;
+			}
+
+			.export-buttons {
+				display: flex;
+				gap: 10px;
+				flex-wrap: wrap;
+			}
+
+			.export-buttons button {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+				padding: 10px 16px;
+			}
+
+			.footer {
+				text-align: center;
+				margin-top: 40px;
+				padding-top: 20px;
+				border-top: 1px solid #e0e0e0;
+				color: #666;
+				font-size: 14px;
+			}
+
+			.material-icons {
+				font-size: 18px;
+			}
+
+			.material-icons.small {
+				font-size: 14px;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="header">
+			<h1>⚙️ DoomDigest Settings</h1>
+			<p>Configure your AI summarization preferences</p>
+		</div>
+
+		<div class="settings-section">
+			<h2><span class="material-icons">smart_toy</span> AI Provider</h2>
+
+			<div class="setting-group">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="api-provider">API Provider</label>
+						<p class="description">
+							Choose which AI service to use for summarization
+						</p>
+					</div>
+					<div class="setting-control">
+						<select id="api-provider">
+							<option value="chrome-ai">
+								Chrome AI (Built-in)
+							</option>
+							<option value="gemini">Google Gemini API</option>
+						</select>
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group" id="chrome-ai-status">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label>Chrome AI Status</label>
+						<p class="description">
+							Built-in Chrome AI summarization status
+						</p>
+					</div>
+					<div class="setting-control">
+						<span id="chrome-ai-indicator" class="status-indicator"
+							>Checking...</span
+						>
+						<button
+							id="download-chrome-ai"
+							style="display: none; margin-left: 10px"
+						>
+							Download
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group" id="show-advanced-status">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="show-advanced-ai-status"
+							>Show Advanced AI Status</label
+						>
+						<p class="description">
+							Display status for Rewriter and Prompt APIs (used
+							for Explain/Simplify)
+						</p>
+					</div>
+					<div class="setting-control">
+						<input type="checkbox" id="show-advanced-ai-status" />
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group" id="rewriter-api-status">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label>RewriterApi Status</label>
+						<p class="description">
+							Built-in Chrome AI rewriting status
+						</p>
+					</div>
+					<div class="setting-control">
+						<span
+							id="rewriter-api-indicator"
+							class="status-indicator"
+							>Checking...</span
+						>
+						<button
+							id="download-rewriter-api"
+							style="display: none; margin-left: 10px"
+						>
+							Download
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group" id="prompt-api-status">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label>PromptAPI Status</label>
+						<p class="description">
+							Built-in Chrome AI language model status
+						</p>
+					</div>
+					<div class="setting-control">
+						<span id="prompt-api-indicator" class="status-indicator"
+							>Checking...</span
+						>
+						<button
+							id="download-prompt-api"
+							style="display: none; margin-left: 10px"
+						>
+							Download
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<div
+				class="setting-group"
+				id="gemini-settings"
+				style="display: none"
+			>
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="gemini-api-key">Gemini API Key</label>
+						<p class="description">
+							Your Google AI API key for Gemini
+						</p>
+					</div>
+					<div class="setting-control">
+						<input
+							type="password"
+							id="gemini-api-key"
+							placeholder="Enter API key"
+						/>
+						<button id="test-gemini">Test</button>
+					</div>
+				</div>
+				<div id="gemini-test-result"></div>
+			</div>
+
+			<div
+				class="setting-group"
+				id="rewriterapi-settings"
+				style="display: none"
+			>
+				<div class="setting-item">
+					<div class="setting-info">
+						<label>RewriterApi</label>
+						<p class="description">
+							Uses Chrome's built-in Writer API for text rewriting
+						</p>
+					</div>
+					<div class="setting-control">
+						<span class="status-indicator ready">Built-in</span>
+					</div>
+				</div>
+			</div>
+
+			<div
+				class="setting-group"
+				id="promptapi-settings"
+				style="display: none"
+			>
+				<div class="setting-item">
+					<div class="setting-info">
+						<label>PromptAPI</label>
+						<p class="description">
+							Uses Chrome's built-in Language Model API with
+							Gemini Nano
+						</p>
+					</div>
+					<div class="setting-control">
+						<span class="status-indicator ready">Built-in</span>
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="settings-section">
+			<h2>
+				<span class="material-icons">tune</span> Summarization Settings
+			</h2>
+
+			<div class="setting-group">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="default-summary-type"
+							>Default Summary Type</label
+						>
+						<p class="description">
+							Default format for automatic summaries
+						</p>
+					</div>
+					<div class="setting-control">
+						<select id="default-summary-type">
+							<option value="key-points">Key Points</option>
+							<option value="headline">Headline</option>
+							<option value="teaser">Teaser</option>
+						</select>
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="auto-summarize"
+							>Auto-Summarize on Scroll</label
+						>
+						<p class="description">
+							Automatically summarize articles as you scroll
+						</p>
+					</div>
+					<div class="setting-control">
+						<input type="checkbox" id="auto-summarize" checked />
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="smart-topics">Smart Topic Detection</label>
+						<p class="description">
+							Automatically group summaries by detected topics
+						</p>
+					</div>
+					<div class="setting-control">
+						<input type="checkbox" id="smart-topics" checked />
+					</div>
+				</div>
+			</div>
+		</div>
+
+		<div class="settings-section">
+			<h2>
+				<span class="material-icons">file_download</span> Export &
+				Backup
+			</h2>
+
+			<div class="export-section">
+				<p style="margin: 0 0 15px 0; color: #666">
+					Export your current digest collection:
+				</p>
+				<div class="export-buttons">
+					<button id="export-txt">
+						<span class="material-icons small">description</span>
+						Export as TXT
+					</button>
+					<button id="export-md">
+						<span class="material-icons small">code</span>
+						Export as Markdown
+					</button>
+					<button id="export-json">
+						<span class="material-icons small">data_object</span>
+						Export as JSON
+					</button>
+					<button id="export-pdf" class="secondary">
+						<span class="material-icons small">picture_as_pdf</span>
+						Export as PDF
+					</button>
+				</div>
+			</div>
+		</div>
+
+		<div class="footer">
+			<p>DoomDigest v1.0 - AI-powered article summarization</p>
+		</div>
+
+		<script src="settings.js"></script>
+	</body>
+</html>

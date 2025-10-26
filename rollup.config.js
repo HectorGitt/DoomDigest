@@ -6,6 +6,7 @@ export default {
 		background: "src/background.js",
 		content: "src/content.js",
 		sidebar: "src/sidebar.js",
+		settings: "src/settings.js",
 	},
 	output: {
 		dir: "dist",
@@ -19,6 +20,7 @@ export default {
 				{ src: "src/manifest.json", dest: "dist" },
 				{ src: "src/sidebar.html", dest: "dist" },
 				{ src: "src/sidebar.css", dest: "dist" },
+				{ src: "src/settings.html", dest: "dist" },
 			],
 		}),
 	],

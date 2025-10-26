@@ -479,14 +479,41 @@ chrome.runtime.onMessage.addListener((msg) => {
 		});
 	} else if (msg.type === "ADD_SELECTED_TEXT_RAW") {
 		// Handle adding selected text directly to digest without summarization
-		handleAddSelectedTextRaw(msg.selectedText, msg.url, msg.title).catch((e) => {
-			console.warn("Add selected text raw failed:", e);
-		});
+		handleAddSelectedTextRaw(msg.selectedText, msg.url, msg.title).catch(
+			(e) => {
+				console.warn("Add selected text raw failed:", e);
+			}
+		);
 	} else if (msg.type === "ADD_SELECTED_TEXT_SUMMARIZED") {
 		// Handle adding selected text with summarization to digest
-		handleAddSelectedTextSummarized(msg.selectedText, msg.url, msg.title).catch((e) => {
+		handleAddSelectedTextSummarized(
+			msg.selectedText,
+			msg.url,
+			msg.title
+		).catch((e) => {
 			console.warn("Add selected text summarized failed:", e);
 		});
+	} else if (msg.type === "EXPLAIN_SELECTED_TEXT") {
+		// Handle explaining selected text
+		handleExplainSelectedText(msg.selectedText, msg.url, msg.title).catch(
+			(e) => {
+				console.warn("Explain selected text failed:", e);
+			}
+		);
+	} else if (msg.type === "REWRITE_SELECTED_TEXT") {
+		// Handle rewriting selected text
+		handleRewriteSelectedText(msg.selectedText, msg.url, msg.title).catch(
+			(e) => {
+				console.warn("Rewrite selected text failed:", e);
+			}
+		);
+	} else if (msg.type === "SIMPLIFY_SELECTED_TEXT") {
+		// Handle simplifying selected text
+		handleSimplifySelectedText(msg.selectedText, msg.url, msg.title).catch(
+			(e) => {
+				console.warn("Simplify selected text failed:", e);
+			}
+		);
 	}
 });
 
@@ -589,7 +616,7 @@ async function handleAddSelectedTextRaw(selectedText, url, pageTitle) {
 	try {
 		// Create a unique hash for the selected text
 		const contentHash = hashString(selectedText + url + Date.now());
-		
+
 		// Check if already added (less likely for selected text, but good practice)
 		if (processedContentHashes.has(contentHash)) {
 			console.log("Selected text already added");
@@ -682,5 +709,266 @@ async function handleAddSelectedTextSummarized(selectedText, url, pageTitle) {
 		}
 	} catch (e) {
 		console.error("Error in handleAddSelectedTextSummarized:", e);
+	}
+}
+
+// Handle explaining selected text
+async function handleExplainSelectedText(selectedText, url, pageTitle) {
+	try {
+		// Create a unique hash for the selected text
+		const contentHash = hashString(
+			selectedText + url + "explain" + Date.now()
+		);
+
+		// Check if already processed
+		if (processedContentHashes.has(contentHash)) {
+			console.log("Selected text already explained");
+			return;
+		}
+
+		// Mark as processed to avoid duplicates
+		processedContentHashes.add(contentHash);
+
+		// Create a title for the selected text
+		const title =
+			selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText;
+
+		// Notify sidebar that explanation is starting
+		await chrome.runtime.sendMessage({
+			type: "SUMMARIZING_START",
+			url: url,
+			title: `Explaining selected text...`,
+			contentHash: contentHash,
+		});
+
+		// Explain the selected text by sending to background script
+		const explanation = await explainText(selectedText.slice(0, 2000)); // Limit for API
+
+		if (explanation) {
+			// Send to sidebar with explanation
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: explanation,
+				url: url,
+				title: `Explanation: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText: selectedText, // Keep original text for reference
+				mode: "explain",
+			});
+		} else {
+			// If explanation fails, add the original text with a note
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: `Could not generate explanation. Original text: ${selectedText}`,
+				url: url,
+				title: `Explanation: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+			});
+		}
+	} catch (e) {
+		console.error("Error in handleExplainSelectedText:", e);
+	}
+}
+
+// Handle simplifying selected text
+async function handleSimplifySelectedText(selectedText, url, pageTitle) {
+	try {
+		// Create a unique hash for the selected text
+		const contentHash = hashString(
+			selectedText + url + "simplify" + Date.now()
+		);
+
+		// Check if already processed
+		if (processedContentHashes.has(contentHash)) {
+			console.log("Selected text already simplified");
+			return;
+		}
+
+		// Mark as processed to avoid duplicates
+		processedContentHashes.add(contentHash);
+
+		// Create a title for the selected text
+		const title =
+			selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText;
+
+		// Notify sidebar that simplification is starting
+		await chrome.runtime.sendMessage({
+			type: "SUMMARIZING_START",
+			url: url,
+			title: `Simplifying selected text...`,
+			contentHash: contentHash,
+		});
+
+		// Simplify the selected text by sending to background script
+		const simplification = await simplifyText(selectedText.slice(0, 2000)); // Limit for API
+
+		if (simplification) {
+			// Send to sidebar with simplification
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: simplification,
+				url: url,
+				title: `Simplified: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText: selectedText, // Keep original text for reference
+				mode: "simplify",
+			});
+		} else {
+			// If simplification fails, add the original text with a note
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: `Could not generate simplification. Original text: ${selectedText}`,
+				url: url,
+				title: `Simplified: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+			});
+		}
+	} catch (e) {
+		console.error("Error in handleSimplifySelectedText:", e);
+	}
+}
+
+// Handle rewriting selected text
+async function handleRewriteSelectedText(selectedText, url, pageTitle) {
+	try {
+		// Create a unique hash for the selected text
+		const contentHash = hashString(
+			selectedText + url + "rewrite" + Date.now()
+		);
+
+		// Check if already processed
+		if (processedContentHashes.has(contentHash)) {
+			console.log("Selected text already rewritten");
+			return;
+		}
+
+		// Mark as processed to avoid duplicates
+		processedContentHashes.add(contentHash);
+
+		// Create a title for the selected text
+		const title =
+			selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText;
+
+		// Notify sidebar that rewriting is starting
+		await chrome.runtime.sendMessage({
+			type: "SUMMARIZING_START",
+			url: url,
+			title: `Rewriting selected text...`,
+			contentHash: contentHash,
+		});
+
+		// Rewrite the selected text by sending to background script
+		const rewritten = await rewriteText(selectedText.slice(0, 2000)); // Limit for API
+
+		if (rewritten) {
+			// Send to sidebar with rewritten text
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: rewritten,
+				url: url,
+				title: `Rewritten: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText: selectedText, // Keep original text for reference
+				mode: "rewrite",
+			});
+		} else {
+			// If rewriting fails, add the original text with a note
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: `Could not generate rewrite. Original text: ${selectedText}`,
+				url: url,
+				title: `Rewritten: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+			});
+		}
+	} catch (e) {
+		console.error("Error in handleRewriteSelectedText:", e);
+	}
+}
+
+// Explain selected text using external API
+async function explainText(text) {
+	try {
+		// Send request to background script to handle API call
+		const response = await chrome.runtime.sendMessage({
+			type: "EXPLAIN_TEXT",
+			text: text,
+		});
+
+		if (response && response.success) {
+			return response.result;
+		} else {
+			console.warn("Explanation failed:", response?.error);
+			return null;
+		}
+	} catch (e) {
+		console.error("Error in explainText:", e);
+		return null;
+	}
+}
+
+// Simplify selected text using external API
+async function simplifyText(text) {
+	try {
+		// Send request to background script to handle API call
+		const response = await chrome.runtime.sendMessage({
+			type: "SIMPLIFY_TEXT",
+			text: text,
+		});
+
+		if (response && response.success) {
+			return response.result;
+		} else {
+			console.warn("Simplification failed:", response?.error);
+			return null;
+		}
+	} catch (e) {
+		console.error("Error in simplifyText:", e);
+		return null;
+	}
+}
+
+// Rewrite selected text using external API
+async function rewriteText(text) {
+	try {
+		// Send request to background script to handle API call
+		const response = await chrome.runtime.sendMessage({
+			type: "REWRITE_TEXT",
+			text: text,
+		});
+
+		if (response && response.success) {
+			return response.result;
+		} else {
+			console.warn("Rewrite failed:", response?.error);
+			return null;
+		}
+	} catch (e) {
+		console.error("Error in rewriteText:", e);
+		return null;
 	}
 }

@@ -454,18 +454,28 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // Load saved settings and processed hashes
-chrome.storage.sync.get(["summaryType", "processedContentHashes"], (result) => {
-	const validTypes = ["key-points", "headline", "teaser"];
-	const savedType = validTypes.includes(result.summaryType)
-		? result.summaryType
-		: "key-points";
-	summaryTypeSelect.value = savedType;
+chrome.storage.sync.get(
+	["summaryType", "processedContentHashes", "summaries"],
+	(result) => {
+		const validTypes = ["key-points", "headline", "teaser"];
+		const savedType = validTypes.includes(result.summaryType)
+			? result.summaryType
+			: "key-points";
+		summaryTypeSelect.value = savedType;
 
-	// Load processed content hashes
-	if (result.processedContentHashes) {
-		processedContentHashes = new Set(result.processedContentHashes);
+		// Load processed content hashes
+		if (result.processedContentHashes) {
+			processedContentHashes = new Set(result.processedContentHashes);
+		}
+
+		// Load saved summaries
+		if (result.summaries) {
+			summaries = result.summaries;
+			renderGroupedSummaries();
+			updateStatus();
+		}
 	}
-});
+);
 
 // Save settings when changed
 summaryTypeSelect.addEventListener("change", () => {
@@ -494,7 +504,7 @@ clearBtn.addEventListener("click", () => {
 	renderGroupedSummaries();
 
 	// Clear from storage
-	chrome.storage.sync.remove(["processedContentHashes"]);
+	chrome.storage.sync.remove(["processedContentHashes", "summaries"]);
 
 	statusDiv.textContent = "Summaries cleared";
 	setTimeout(() => {
@@ -631,6 +641,11 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 		// Add to summaries array
 		summaries.push(msg);
+
+		// Store summaries persistently
+		chrome.storage.sync.set({
+			summaries: summaries,
+		});
 
 		// Store content hash persistently
 		if (msg.contentHash) {

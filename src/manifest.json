@@ -8,7 +8,8 @@
 		"activeTab",
 		"scripting",
 		"storage",
-		"contextMenus"
+		"contextMenus",
+		"downloads"
 	],
 	"host_permissions": ["<all_urls>"],
 	"background": {
@@ -17,6 +18,7 @@
 	"side_panel": {
 		"default_path": "sidebar.html"
 	},
+	"options_page": "settings.html",
 	"content_scripts": [
 		{
 			"matches": ["<all_urls>"],
