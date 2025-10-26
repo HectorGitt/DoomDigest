@@ -302,17 +302,28 @@ function renderGroupedSummaries() {
 
 	// Add a single loading summary if there are active summarizations
 	if (activeSummarizations > 0) {
-		const loadingSummary = {
-			url: window.location.href, // Use current tab URL for grouping
-			title: `Generating ${activeSummarizations} summary${
-				activeSummarizations > 1 ? "ies" : ""
-			}...`,
-			timestamp: Date.now(),
-			loading: true,
-		};
-		allSummaries.unshift(loadingSummary); // Add at the beginning
+		// Get current tab info for better loading message
+		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+			const currentTab = tabs[0];
+			const pageTitle = currentTab ? currentTab.title : "Page";
+			const pageUrl = currentTab ? currentTab.url : window.location.href;
+			const loadingSummary = {
+				url: pageUrl, // Use actual tab URL for proper grouping
+				title: `Generating summary for ${pageTitle}...`,
+				timestamp: Date.now(),
+				loading: true,
+			};
+			allSummaries.unshift(loadingSummary); // Add at the beginning
+			
+			// Continue with rendering after getting tab info
+			renderSummaries(allSummaries);
+		});
+	} else {
+		renderSummaries(allSummaries);
 	}
+}
 
+function renderSummaries(allSummaries) {
 	// Group summaries by hostname
 	const grouped = {};
 	allSummaries.forEach((summary) => {
