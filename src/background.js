@@ -13,6 +13,12 @@ chrome.runtime.onInstalled.addListener(() => {
 		title: "Add to Digest",
 		contexts: ["selection"],
 	});
+	
+	chrome.contextMenus.create({
+		id: "summarize-selection",
+		title: "Summarize",
+		contexts: ["selection"],
+	});
 });
 
 // Handle context menu clicks
@@ -24,11 +30,22 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 			summaryType: "key-points", // Default to key-points for page snap
 		});
 	} else if (info.menuItemId === "add-to-digest") {
-		// Add selected text to digest
+		// Add selected text to digest without summarization
 		const selectedText = info.selectionText;
 		if (selectedText && selectedText.trim().length > 0) {
 			chrome.tabs.sendMessage(tab.id, {
-				type: "ADD_SELECTED_TEXT",
+				type: "ADD_SELECTED_TEXT_RAW",
+				selectedText: selectedText.trim(),
+				url: tab.url,
+				title: tab.title,
+			});
+		}
+	} else if (info.menuItemId === "summarize-selection") {
+		// Summarize selected text before adding to digest
+		const selectedText = info.selectionText;
+		if (selectedText && selectedText.trim().length > 0) {
+			chrome.tabs.sendMessage(tab.id, {
+				type: "ADD_SELECTED_TEXT_SUMMARIZED",
 				selectedText: selectedText.trim(),
 				url: tab.url,
 				title: tab.title,

@@ -402,6 +402,7 @@ function renderSummaries(allSummaries) {
 					// Normal summary
 					const linkUrl = summary.elementLink || summary.url;
 					const isSelectedText = summary.isSelectedText;
+					const isRawText = summary.isRawText;
 					const displayTitle = isSelectedText
 						? summary.title
 						: summary.title || "Article Summary";
@@ -414,7 +415,13 @@ function renderSummaries(allSummaries) {
 
 					// Add special styling for selected text
 					if (isSelectedText) {
-						card.classList.add("selected-text");
+						if (isRawText) {
+							// Raw text styling
+							card.classList.add("selected-text-raw");
+						} else {
+							// Summarized text styling
+							card.classList.add("selected-text");
+						}
 					}
 
 					// Make the card clickable to open the link

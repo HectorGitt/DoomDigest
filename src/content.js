@@ -477,13 +477,16 @@ chrome.runtime.onMessage.addListener((msg) => {
 		handlePageSnap(msg.summaryType || "key-points").catch((e) => {
 			console.warn("Page snap failed:", e);
 		});
-	} else if (msg.type === "ADD_SELECTED_TEXT") {
-		// Handle adding selected text directly to digest
-		handleAddSelectedText(msg.selectedText, msg.url, msg.title).catch(
-			(e) => {
-				console.warn("Add selected text failed:", e);
-			}
-		);
+	} else if (msg.type === "ADD_SELECTED_TEXT_RAW") {
+		// Handle adding selected text directly to digest without summarization
+		handleAddSelectedTextRaw(msg.selectedText, msg.url, msg.title).catch((e) => {
+			console.warn("Add selected text raw failed:", e);
+		});
+	} else if (msg.type === "ADD_SELECTED_TEXT_SUMMARIZED") {
+		// Handle adding selected text with summarization to digest
+		handleAddSelectedTextSummarized(msg.selectedText, msg.url, msg.title).catch((e) => {
+			console.warn("Add selected text summarized failed:", e);
+		});
 	}
 });
 
@@ -582,7 +585,45 @@ async function handlePageSnap(requestedSummaryType) {
 }
 
 // Handle adding selected text directly to digest
-async function handleAddSelectedText(selectedText, url, pageTitle) {
+async function handleAddSelectedTextRaw(selectedText, url, pageTitle) {
+	try {
+		// Create a unique hash for the selected text
+		const contentHash = hashString(selectedText + url + Date.now());
+		
+		// Check if already added (less likely for selected text, but good practice)
+		if (processedContentHashes.has(contentHash)) {
+			console.log("Selected text already added");
+			return;
+		}
+
+		// Mark as processed to avoid duplicates
+		processedContentHashes.add(contentHash);
+
+		// Create a title for the selected text
+		const title =
+			selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText;
+
+		// Send to sidebar as direct text addition (no summarization)
+		await chrome.runtime.sendMessage({
+			type: "NEW_SUMMARY",
+			summary: selectedText, // Use the selected text directly
+			url: url,
+			title: `Selected Text: ${title}`,
+			elementLink: url,
+			timestamp: Date.now(),
+			contentHash: contentHash,
+			isSelectedText: true,
+			isRawText: true, // Flag to indicate this is raw text
+		});
+	} catch (e) {
+		console.error("Error in handleAddSelectedTextRaw:", e);
+	}
+}
+
+// Handle adding selected text with summarization to digest
+async function handleAddSelectedTextSummarized(selectedText, url, pageTitle) {
 	try {
 		// Create a unique hash for the selected text
 		const contentHash = hashString(selectedText + url + Date.now());
@@ -640,6 +681,6 @@ async function handleAddSelectedText(selectedText, url, pageTitle) {
 			});
 		}
 	} catch (e) {
-		console.error("Error in handleAddSelectedText:", e);
+		console.error("Error in handleAddSelectedTextSummarized:", e);
 	}
 }
