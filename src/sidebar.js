@@ -554,7 +554,9 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			}
 
 			if (!canProceed) {
-				showSettingsButton("AI not available. Please configure API in settings.");
+				showSettingsButton(
+					"AI not available. Please configure API in settings."
+				);
 				toggleGenerationBtn.disabled = false;
 				return;
 			}
@@ -626,7 +628,7 @@ stopAllBtn.addEventListener("click", async () => {
 async function checkAPIStatus() {
 	// First check if Gemini API key has been tested successfully
 	const geminiTested = await checkGeminiTestedStatus();
-	
+
 	if (geminiTested) {
 		// If Gemini has been tested successfully, use it and clear any errors
 		await switchToGeminiProvider();
@@ -642,15 +644,23 @@ async function checkAPIStatus() {
 				statusDiv.textContent = "AI Summarizer Ready";
 			} else if (avail === "downloadable") {
 				// Show button to go to settings instead of downloading
-				showSettingsButton("AI model available for download. Configure in settings.");
+				showSettingsButton(
+					"AI model available for download. Configure in settings."
+				);
 			} else {
-				showSettingsButton("AI Summarizer Unavailable. Configure alternative API in settings.");
+				showSettingsButton(
+					"AI Summarizer Unavailable. Configure alternative API in settings."
+				);
 			}
 		} catch (e) {
-			showSettingsButton("AI Summarizer Error. Configure alternative API in settings.");
+			showSettingsButton(
+				"AI Summarizer Error. Configure alternative API in settings."
+			);
 		}
 	} else {
-		showSettingsButton("AI Summarizer Not Supported. Configure alternative API in settings.");
+		showSettingsButton(
+			"AI Summarizer Not Supported. Configure alternative API in settings."
+		);
 	}
 }
 
@@ -661,7 +671,7 @@ function showSettingsButton(message) {
 			Settings
 		</button>
 	`;
-	
+
 	// Add event listener to the button
 	document.getElementById("go-to-settings").addEventListener("click", () => {
 		chrome.runtime.openOptionsPage();
@@ -737,7 +747,10 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 // Listen for storage changes to update API status
 chrome.storage.onChanged.addListener((changes, namespace) => {
-	if (namespace === "sync" && (changes.apiProvider || changes.geminiApiTested)) {
+	if (
+		namespace === "sync" &&
+		(changes.apiProvider || changes.geminiApiTested)
+	) {
 		// Re-check API status when provider or test status changes
 		checkAPIStatus();
 	}
