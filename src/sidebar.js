@@ -314,7 +314,7 @@ function renderGroupedSummaries() {
 				loading: true,
 			};
 			allSummaries.unshift(loadingSummary); // Add at the beginning
-			
+
 			// Continue with rendering after getting tab info
 			renderSummaries(allSummaries);
 		});
@@ -401,11 +401,22 @@ function renderSummaries(allSummaries) {
 				} else {
 					// Normal summary
 					const linkUrl = summary.elementLink || summary.url;
+					const isSelectedText = summary.isSelectedText;
+					const displayTitle = isSelectedText
+						? summary.title
+						: summary.title || "Article Summary";
+
 					card.innerHTML = `
             <small>${time}${stepIndicator}</small>
-            <div class="title">${summary.title || "Article Summary"}</div>
+            <div class="title">${displayTitle}</div>
             <p>${summary.summary}</p>
           `;
+
+					// Add special styling for selected text
+					if (isSelectedText) {
+						card.classList.add("selected-text");
+					}
+
 					// Make the card clickable to open the link
 					if (linkUrl) {
 						card.classList.add("clickable");

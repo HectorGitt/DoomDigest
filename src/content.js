@@ -472,6 +472,18 @@ chrome.runtime.onMessage.addListener((msg) => {
 		checkAndSummarize().catch((e) => {
 			console.warn("Enable-triggered summarization failed:", e);
 		});
+	} else if (msg.type === "SNAP_PAGE_SUMMARY") {
+		// Handle page snap - summarize the entire page regardless of generation state
+		handlePageSnap(msg.summaryType || "key-points").catch((e) => {
+			console.warn("Page snap failed:", e);
+		});
+	} else if (msg.type === "ADD_SELECTED_TEXT") {
+		// Handle adding selected text directly to digest
+		handleAddSelectedText(msg.selectedText, msg.url, msg.title).catch(
+			(e) => {
+				console.warn("Add selected text failed:", e);
+			}
+		);
 	}
 });
 
@@ -491,4 +503,143 @@ if (summarizationEnabled) {
 	checkAndSummarize().catch((e) => {
 		console.warn("Initial summarization failed:", e);
 	});
+}
+
+// Handle page snap - summarize the entire page
+async function handlePageSnap(requestedSummaryType) {
+	try {
+		// Get the main page content
+		const pageContent = extractReadableContent();
+		if (pageContent.length === 0) {
+			console.warn("No content found for page snap");
+			return;
+		}
+
+		// Use the first (most relevant) content block
+		const mainContent = pageContent[0];
+		const normalizedText = normalizeText(mainContent.text);
+
+		// Check if content is substantial enough
+		if (normalizedText.length < 100) {
+			console.warn("Content too short for page snap");
+			return;
+		}
+
+		// Create content hash to avoid duplicates
+		const contentHash = hashString(normalizedText);
+
+		// Check if already processed
+		if (processedContentHashes.has(contentHash)) {
+			console.log("Page already snapped");
+			return;
+		}
+
+		// Extract title and link
+		const title =
+			extractTitle(mainContent.element) ||
+			document.title ||
+			"Page Summary";
+		const elementLink =
+			extractElementLink(mainContent.element) || location.href;
+
+		// Temporarily set summary type for this snap
+		const originalSummaryType = summaryType;
+		summaryType = requestedSummaryType;
+
+		// Notify sidebar that summarization is starting
+		await chrome.runtime.sendMessage({
+			type: "SUMMARIZING_START",
+			url: location.href,
+			title: `Snapping ${title}...`,
+			contentHash: contentHash,
+		});
+
+		// Summarize the content
+		const text = normalizedText.slice(0, 2000); // Limit for API
+		const summary = await summarizeText(text);
+
+		// Restore original summary type
+		summaryType = originalSummaryType;
+
+		if (summary) {
+			// Mark as processed
+			processedContentHashes.add(contentHash);
+
+			// Send to sidebar
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary,
+				url: location.href,
+				title: title,
+				elementLink: elementLink,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+			});
+		}
+	} catch (e) {
+		console.error("Error in handlePageSnap:", e);
+	}
+}
+
+// Handle adding selected text directly to digest
+async function handleAddSelectedText(selectedText, url, pageTitle) {
+	try {
+		// Create a unique hash for the selected text
+		const contentHash = hashString(selectedText + url + Date.now());
+
+		// Check if already added (less likely for selected text, but good practice)
+		if (processedContentHashes.has(contentHash)) {
+			console.log("Selected text already added");
+			return;
+		}
+
+		// Mark as processed to avoid duplicates
+		processedContentHashes.add(contentHash);
+
+		// Create a title for the selected text
+		const title =
+			selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText;
+
+		// Notify sidebar that summarization is starting
+		await chrome.runtime.sendMessage({
+			type: "SUMMARIZING_START",
+			url: url,
+			title: `Summarizing selected text...`,
+			contentHash: contentHash,
+		});
+
+		// Summarize the selected text
+		const summary = await summarizeText(selectedText.slice(0, 2000)); // Limit for API
+
+		if (summary) {
+			// Send to sidebar with summarized text
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: summary,
+				url: url,
+				title: `Selected Text: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText: selectedText, // Keep original text for reference
+			});
+		} else {
+			// If summarization fails, add the original text
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: selectedText,
+				url: url,
+				title: `Selected Text: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+			});
+		}
+	} catch (e) {
+		console.error("Error in handleAddSelectedText:", e);
+	}
 }

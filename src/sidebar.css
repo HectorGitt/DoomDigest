@@ -377,3 +377,20 @@ h2 {
 .summary-card.loading {
 	opacity: 0.8;
 }
+
+/* Selected text styling */
+.summary-card.selected-text {
+	background: rgba(59, 130, 246, 0.1);
+	border-color: rgba(59, 130, 246, 0.3);
+}
+
+.summary-card.selected-text .title {
+	color: #2563eb;
+	font-style: italic;
+}
+
+.summary-card.selected-text::before {
+	content: "📝";
+	margin-right: 4px;
+	font-size: 12px;
+}

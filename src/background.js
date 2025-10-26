@@ -1,5 +1,42 @@
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
+// Create context menu items
+chrome.runtime.onInstalled.addListener(() => {
+	chrome.contextMenus.create({
+		id: "snap-page",
+		title: "Snap Page",
+		contexts: ["page"],
+	});
+
+	chrome.contextMenus.create({
+		id: "add-to-digest",
+		title: "Add to Digest",
+		contexts: ["selection"],
+	});
+});
+
+// Handle context menu clicks
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+	if (info.menuItemId === "snap-page") {
+		// Snap the entire page
+		chrome.tabs.sendMessage(tab.id, {
+			type: "SNAP_PAGE_SUMMARY",
+			summaryType: "key-points", // Default to key-points for page snap
+		});
+	} else if (info.menuItemId === "add-to-digest") {
+		// Add selected text to digest
+		const selectedText = info.selectionText;
+		if (selectedText && selectedText.trim().length > 0) {
+			chrome.tabs.sendMessage(tab.id, {
+				type: "ADD_SELECTED_TEXT",
+				selectedText: selectedText.trim(),
+				url: tab.url,
+				title: tab.title,
+			});
+		}
+	}
+});
+
 // Listen for tab changes and notify sidebar
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
 	try {
