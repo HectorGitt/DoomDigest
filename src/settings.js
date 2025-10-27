@@ -40,6 +40,9 @@ document.addEventListener("DOMContentLoaded", function () {
 	const exportJsonBtn = document.getElementById("export-json");
 	const exportPdfBtn = document.getElementById("export-pdf");
 
+	// Remove key button
+	const removeGeminiKeyBtn = document.getElementById("remove-gemini-key");
+
 	// Load saved settings
 	loadSettings();
 
@@ -80,6 +83,9 @@ document.addEventListener("DOMContentLoaded", function () {
 	exportMdBtn.addEventListener("click", () => exportDigest("md"));
 	exportJsonBtn.addEventListener("click", () => exportDigest("json"));
 	exportPdfBtn.addEventListener("click", () => exportDigest("pdf"));
+
+	// Remove key button
+	removeGeminiKeyBtn.addEventListener("click", removeGeminiKey);
 
 	// Initialize
 	checkAllAPIStatuses();
@@ -468,6 +474,15 @@ document.addEventListener("DOMContentLoaded", function () {
 	function showTestResult(element, message, type) {
 		element.className = `api-test-result ${type}`;
 		element.textContent = message;
+	}
+
+	function removeGeminiKey() {
+		geminiApiKey.value = "";
+		saveSettings();
+		// Clear tested status
+		chrome.storage.sync.remove(["geminiApiTested"]);
+		// Update UI
+		toggleApiSettings(apiProviderSelect.value);
 	}
 
 	async function exportDigest(format) {
