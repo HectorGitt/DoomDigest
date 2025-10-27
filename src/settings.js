@@ -1,4 +1,5 @@
 // settings.js
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
 document.addEventListener("DOMContentLoaded", function () {
 	// DOM elements
@@ -425,12 +426,10 @@ document.addEventListener("DOMContentLoaded", function () {
 		testGeminiBtn.textContent = "Testing...";
 
 		try {
-			const { GoogleGenerativeAI } = await import(
-				"@google/generative-ai"
-			);
-
 			const genAI = new GoogleGenerativeAI(apiKey);
-			const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+			const model = genAI.getGenerativeModel({
+				model: "gemini-2.5-flash",
+			});
 
 			const result = await model.generateContent("Hello, test message");
 			const response = await result.response;

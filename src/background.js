@@ -1,3 +1,5 @@
+import { GoogleGenerativeAI } from "@google/generative-ai";
+
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
 // Create context menu items
@@ -238,15 +240,13 @@ async function handleSimplifyText(text) {
 // Rewrite text using Gemini API
 async function rewriteWithGemini(text) {
 	try {
-		const { GoogleGenerativeAI } = await import("@google/generative-ai");
-
 		const apiKey = await getGeminiApiKey();
 		if (!apiKey) {
 			throw new Error("Gemini API key not configured");
 		}
 
 		const genAI = new GoogleGenerativeAI(apiKey);
-		const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+		const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 		const prompt = `Please rewrite the following text using different words and sentence structure while maintaining the original meaning and key information. Keep the same level of formality and tone:
 
@@ -267,10 +267,8 @@ Rewritten version:`;
 
 // Simplify text using Gemini API
 async function simplifyWithGemini(text, apiKey) {
-	const { GoogleGenerativeAI } = await import("@google/generative-ai");
-
 	const genAI = new GoogleGenerativeAI(apiKey);
-	const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+	const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 	const prompt = `Please simplify the following text. Use simpler words and shorter sentences. Make it easier to understand while keeping the main ideas:\n\n${text}`;
 

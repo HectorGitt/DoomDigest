@@ -13,7 +13,8 @@
 	],
 	"host_permissions": ["<all_urls>"],
 	"background": {
-		"service_worker": "background.js"
+		"service_worker": "background.js",
+		"type": "module"
 	},
 	"side_panel": {
 		"default_path": "sidebar.html"
@@ -23,7 +24,8 @@
 		{
 			"matches": ["<all_urls>"],
 			"js": ["content.js"],
-			"run_at": "document_idle"
+			"run_at": "document_idle",
+			"type": "module"
 		}
 	]
 }
