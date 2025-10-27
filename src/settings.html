@@ -198,12 +198,44 @@
 							<span class="material-icons small">sync</span>
 							Sync Digest
 						</button>
+						<button
+							id="remove-google-drive"
+							class="secondary"
+							style="display: none"
+						>
+							<span class="material-icons small">logout</span>
+							Remove
+						</button>
 						<span
 							id="google-drive-status"
 							class="status-indicator"
 							style="display: none"
 							>Connected</span
 						>
+					</div>
+				</div>
+			</div>
+
+			<div class="setting-group">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="auto-sync-frequency"
+							>Automatic Sync Schedule</label
+						>
+						<p class="description">
+							Automatically sync your digest to Google Drive on a
+							schedule
+						</p>
+					</div>
+					<div class="setting-control">
+						<select id="auto-sync-frequency">
+							<option value="disabled">Disabled</option>
+							<option value="minute">
+								Every Minute (Testing)
+							</option>
+							<option value="weekly">Weekly</option>
+							<option value="monthly">Monthly</option>
+						</select>
 					</div>
 				</div>
 			</div>

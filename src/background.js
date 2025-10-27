@@ -149,6 +149,108 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				sendResponse({ success: false, error: error.message });
 			});
 		return true; // Keep message channel open for async response
+	} else if (request.type === "REMOVE_GOOGLE_DRIVE") {
+		// Handle Google Drive remove request from settings page
+		handleGoogleDriveRemove()
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Google Drive remove error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true;
+	} else if (request.type === "SET_AUTO_SYNC_ALARM") {
+		// Handle setting up auto-sync alarm
+		chrome.alarms.create(request.alarmInfo.name, {
+			delayInMinutes: request.alarmInfo.delayInMinutes,
+			periodInMinutes: request.alarmInfo.periodInMinutes,
+		});
+		return true;
+	} else if (request.type === "CLEAR_AUTO_SYNC_ALARM") {
+		// Handle clearing auto-sync alarm
+		chrome.alarms.clear("autoSync");
+		return true;
+	}
+});
+
+// Restore auto-sync alarm on startup
+chrome.storage.sync.get(["autoSyncFrequency"], (result) => {
+	const frequency = result.autoSyncFrequency;
+	if (frequency && frequency !== "disabled") {
+		// Recreate the alarm based on saved frequency
+		let alarmInfo;
+		switch (frequency) {
+			case "minute":
+				alarmInfo = {
+					name: "autoSync",
+					delayInMinutes: 1,
+					periodInMinutes: 1,
+				};
+				break;
+			case "weekly":
+				alarmInfo = {
+					name: "autoSync",
+					delayInMinutes: 7 * 24 * 60,
+					periodInMinutes: 7 * 24 * 60,
+				};
+				break;
+			case "monthly":
+				alarmInfo = {
+					name: "autoSync",
+					delayInMinutes: 30 * 24 * 60,
+					periodInMinutes: 30 * 24 * 60,
+				};
+				break;
+		}
+		if (alarmInfo) {
+			chrome.alarms.create(alarmInfo.name, {
+				delayInMinutes: alarmInfo.delayInMinutes,
+				periodInMinutes: alarmInfo.periodInMinutes,
+			});
+			console.log(`Restored ${frequency} auto-sync alarm`);
+		}
+	}
+});
+
+// Handle alarm triggers for auto-sync
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+	if (alarm.name === "autoSync") {
+		try {
+			console.log("Auto-sync alarm triggered, starting sync...");
+
+			// Get summaries from storage
+			const result = await chrome.storage.sync.get(["summaries"]);
+			const summaries = result.summaries || [];
+
+			if (summaries.length === 0) {
+				console.log("No summaries to sync");
+				return;
+			}
+
+			// Check if Google Drive is connected
+			const settings = await chrome.storage.sync.get([
+				"googleDriveConnected",
+			]);
+			if (!settings.googleDriveConnected) {
+				console.log("Google Drive not connected, skipping auto-sync");
+				return;
+			}
+
+			// Perform the sync
+			const syncResult = await handleGoogleDriveSync(summaries);
+
+			if (syncResult.success) {
+				console.log(
+					"Auto-sync completed successfully:",
+					syncResult.message
+				);
+			} else {
+				console.error("Auto-sync failed:", syncResult.error);
+			}
+		} catch (error) {
+			console.error("Auto-sync error:", error);
+		}
 	}
 });
 
@@ -317,36 +419,108 @@ async function handleGoogleDriveConnect() {
 	}
 }
 
+// Handle Google Drive remove
+async function handleGoogleDriveRemove() {
+	try {
+		// Get the current auth token to remove it from cache
+		const token = await new Promise((resolve, reject) => {
+			chrome.identity.getAuthToken({ interactive: false }, (token) => {
+				if (chrome.runtime.lastError) {
+					// If there's no cached token, that's fine - consider it already removed
+					resolve(null);
+				} else {
+					resolve(token);
+				}
+			});
+		});
+
+		// If we have a token, remove it from cache
+		if (token) {
+			await new Promise((resolve, reject) => {
+				chrome.identity.removeCachedAuthToken({ token: token }, () => {
+					if (chrome.runtime.lastError) {
+						reject(chrome.runtime.lastError);
+					} else {
+						resolve();
+					}
+				});
+			});
+		}
+
+		return {
+			success: true,
+			message: "Successfully disconnected from Google Drive!",
+		};
+	} catch (error) {
+		console.error("Google Drive remove failed:", error);
+		return { success: false, error: error.message };
+	}
+}
+
 async function syncSummariesToDrive(token, summaries) {
 	const fileName = `DoomDigest-${new Date().toISOString().split("T")[0]}.md`;
 	const markdownContent = createMarkdownContent(summaries);
 
 	try {
+		// Step 1: Create the file metadata
+		const metadata = {
+			name: fileName,
+			mimeType: "text/markdown",
+			description: "DoomDigest export - AI-powered article summaries",
+		};
+
+		// Step 2: Upload the file using Google Drive API multipart upload
 		const response = await fetch(
-			"https://digest-store-850708581112.us-central1.run.app",
+			"https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
 			{
 				method: "POST",
 				headers: {
 					Authorization: `Bearer ${token}`,
-					"Content-Type": "application/json",
+					"Content-Type": "multipart/related; boundary=boundary123",
 				},
-				body: JSON.stringify({
-					fileName: fileName,
-					content: markdownContent,
-				}),
+				body: createMultipartBody(metadata, markdownContent),
 			}
 		);
 
 		if (!response.ok) {
-			throw new Error(`Cloud function error: ${response.status}`);
+			const errorData = await response.json();
+			throw new Error(
+				`Drive API error: ${response.status} - ${
+					errorData.error?.message || "Unknown error"
+				}`
+			);
 		}
 
 		const result = await response.json();
-		return result;
+		console.log("File created successfully:", result);
+
+		return {
+			success: true,
+			fileId: result.id,
+			fileUrl: `https://drive.google.com/file/d/${result.id}/view`,
+			message: `Successfully uploaded to Google Drive: ${fileName}`,
+		};
 	} catch (error) {
-		console.error("Cloud function call failed:", error);
+		console.error("Direct Drive API call failed:", error);
 		throw error;
 	}
+}
+
+// Helper function to create multipart body for Drive API
+function createMultipartBody(metadata, content) {
+	const boundary = "boundary123";
+	const delimiter = `\r\n--${boundary}\r\n`;
+	const closeDelimiter = `\r\n--${boundary}--`;
+
+	const metadataPart =
+		delimiter +
+		"Content-Type: application/json; charset=UTF-8\r\n\r\n" +
+		JSON.stringify(metadata);
+
+	const contentPart =
+		delimiter + "Content-Type: text/markdown\r\n\r\n" + content;
+
+	return metadataPart + contentPart + closeDelimiter;
 }
 
 function createMarkdownContent(summaries) {

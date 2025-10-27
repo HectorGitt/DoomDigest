@@ -10,7 +10,8 @@
 		"storage",
 		"contextMenus",
 		"downloads",
-		"identity"
+		"identity",
+		"alarms"
 	],
 	"oauth2": {
 		"client_id": "CLIENT_ID.apps.googleusercontent.com",

@@ -17,6 +17,9 @@ document.addEventListener("DOMContentLoaded", function () {
 		"show-advanced-ai-status"
 	);
 
+	// Auto-sync frequency
+	const autoSyncFrequency = document.getElementById("auto-sync-frequency");
+
 	// Export buttons
 	const exportTxtBtn = document.getElementById("export-txt");
 	const exportMdBtn = document.getElementById("export-md");
@@ -31,6 +34,7 @@ document.addEventListener("DOMContentLoaded", function () {
 		"connect-google-drive"
 	);
 	const syncGoogleDriveBtn = document.getElementById("sync-google-drive");
+	const removeGoogleDriveBtn = document.getElementById("remove-google-drive");
 	const googleDriveStatus = document.getElementById("google-drive-status");
 
 	// Load saved settings
@@ -59,6 +63,12 @@ document.addEventListener("DOMContentLoaded", function () {
 		saveSettings();
 	});
 
+	// Auto-sync frequency
+	autoSyncFrequency.addEventListener("change", function () {
+		saveSettings();
+		updateAutoSyncSchedule(this.value);
+	});
+
 	// Clear Gemini tested status when API key changes
 	geminiApiKey.addEventListener("input", () => {
 		if (geminiApiKey.value.trim() !== "") {
@@ -78,6 +88,7 @@ document.addEventListener("DOMContentLoaded", function () {
 	// Google Drive buttons
 	connectGoogleDriveBtn.addEventListener("click", connectGoogleDrive);
 	syncGoogleDriveBtn.addEventListener("click", syncToGoogleDrive);
+	removeGoogleDriveBtn.addEventListener("click", removeGoogleDrive);
 
 	// Initialize
 	checkAllAPIStatuses();
@@ -105,6 +116,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				"showAdvancedAiStatus",
 				"geminiApiTested",
 				"googleDriveConnected",
+				"autoSyncFrequency",
 			],
 			function (result) {
 				apiProviderSelect.value = result.apiProvider || "chrome-ai";
@@ -116,6 +128,10 @@ document.addEventListener("DOMContentLoaded", function () {
 				showAdvancedAiStatus.checked =
 					result.showAdvancedAiStatus || false;
 
+				// Auto-sync frequency
+				autoSyncFrequency.value =
+					result.autoSyncFrequency || "disabled";
+
 				// If Gemini API has been tested successfully, prioritize it
 				if (result.geminiApiTested && result.geminiApiKey) {
 					apiProviderSelect.value = "gemini";
@@ -125,6 +141,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				if (result.googleDriveConnected) {
 					connectGoogleDriveBtn.style.display = "none";
 					syncGoogleDriveBtn.style.display = "inline-block";
+					removeGoogleDriveBtn.style.display = "inline-block";
 					googleDriveStatus.style.display = "inline-block";
 				}
 
@@ -142,6 +159,7 @@ document.addEventListener("DOMContentLoaded", function () {
 			autoSummarize: autoSummarize.checked,
 			smartTopics: smartTopics.checked,
 			showAdvancedAiStatus: showAdvancedAiStatus.checked,
+			autoSyncFrequency: autoSyncFrequency.value,
 		};
 
 		chrome.storage.sync.set(settings);
@@ -522,6 +540,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				// Update UI
 				connectGoogleDriveBtn.style.display = "none";
 				syncGoogleDriveBtn.style.display = "inline-block";
+				removeGoogleDriveBtn.style.display = "inline-block";
 				googleDriveStatus.style.display = "inline-block";
 
 				alert("Successfully connected to Google Drive!");
@@ -576,6 +595,7 @@ document.addEventListener("DOMContentLoaded", function () {
 						// Reset UI to show connect button
 						connectGoogleDriveBtn.style.display = "inline-block";
 						syncGoogleDriveBtn.style.display = "none";
+						removeGoogleDriveBtn.style.display = "none";
 						googleDriveStatus.style.display = "none";
 					});
 				}
@@ -587,6 +607,84 @@ document.addEventListener("DOMContentLoaded", function () {
 		} finally {
 			syncGoogleDriveBtn.disabled = false;
 			syncGoogleDriveBtn.textContent = "Sync Digest";
+		}
+	}
+
+	async function removeGoogleDrive() {
+		try {
+			removeGoogleDriveBtn.disabled = true;
+			removeGoogleDriveBtn.textContent = "Removing...";
+
+			// Send remove request to background script
+			const removeResponse = await chrome.runtime.sendMessage({
+				type: "REMOVE_GOOGLE_DRIVE",
+			});
+
+			if (removeResponse.success) {
+				// Clear connection status
+				chrome.storage.sync.remove(["googleDriveConnected"]);
+
+				// Update UI
+				connectGoogleDriveBtn.style.display = "inline-block";
+				syncGoogleDriveBtn.style.display = "none";
+				removeGoogleDriveBtn.style.display = "none";
+				googleDriveStatus.style.display = "none";
+
+				alert("Successfully disconnected from Google Drive!");
+			} else {
+				alert(removeResponse.error);
+			}
+		} catch (error) {
+			console.error("Google Drive removal failed:", error);
+			alert("Failed to disconnect from Google Drive: " + error.message);
+		} finally {
+			removeGoogleDriveBtn.disabled = false;
+			removeGoogleDriveBtn.textContent = "Remove";
+		}
+	}
+
+	async function updateAutoSyncSchedule(frequency) {
+		try {
+			// Clear any existing auto-sync alarm
+			await chrome.runtime.sendMessage({
+				type: "CLEAR_AUTO_SYNC_ALARM",
+			});
+
+			// Set up new alarm if frequency is not disabled
+			if (frequency !== "disabled") {
+				const alarmInfo = getAlarmInfo(frequency);
+				await chrome.runtime.sendMessage({
+					type: "SET_AUTO_SYNC_ALARM",
+					alarmInfo: alarmInfo,
+				});
+			}
+		} catch (error) {
+			console.error("Failed to update auto-sync schedule:", error);
+		}
+	}
+
+	function getAlarmInfo(frequency) {
+		switch (frequency) {
+			case "minute":
+				return {
+					name: "autoSync",
+					delayInMinutes: 1,
+					periodInMinutes: 1,
+				};
+			case "weekly":
+				return {
+					name: "autoSync",
+					delayInMinutes: 7 * 24 * 60, // 7 days
+					periodInMinutes: 7 * 24 * 60,
+				};
+			case "monthly":
+				return {
+					name: "autoSync",
+					delayInMinutes: 30 * 24 * 60, // 30 days
+					periodInMinutes: 30 * 24 * 60,
+				};
+			default:
+				return null;
 		}
 	}
 });
