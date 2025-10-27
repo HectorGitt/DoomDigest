@@ -76,11 +76,15 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 // Listen for tab changes and notify sidebar
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
 	try {
-		// Notify sidebar to update colors
-		chrome.runtime.sendMessage({
-			type: "TAB_ACTIVATED",
-			tabId: activeInfo.tabId,
-		});
+		// Notify sidebar to update colors (only if sidebar is open)
+		chrome.runtime
+			.sendMessage({
+				type: "TAB_ACTIVATED",
+				tabId: activeInfo.tabId,
+			})
+			.catch(() => {
+				// Ignore errors when sidebar is not open
+			});
 
 		// Note: Removed automatic summarization trigger on tab switch
 		// Users can manually start summarization using the sidebar controls
@@ -95,11 +99,15 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 		// Check if this is the currently active tab
 		chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
 			if (tabs[0] && tabs[0].id === tabId) {
-				// Notify sidebar to update colors
-				chrome.runtime.sendMessage({
-					type: "TAB_UPDATED",
-					tabId: tabId,
-				});
+				// Notify sidebar to update colors (only if sidebar is open)
+				chrome.runtime
+					.sendMessage({
+						type: "TAB_UPDATED",
+						tabId: tabId,
+					})
+					.catch(() => {
+						// Ignore errors when sidebar is not open
+					});
 
 				// Note: Removed automatic summarization trigger on URL change
 				// Users can manually start summarization using the sidebar controls
@@ -119,6 +127,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				console.error("Simplify text error:", error);
 				sendResponse({ success: false, error: error.message });
 			});
+		return true; // Keep message channel open for async response
 	} else if (request.type === "GET_SUMMARIES_FOR_EXPORT") {
 		// Handle export request from settings page
 		chrome.storage.sync.get(["summaries"], (result) => {
@@ -264,20 +273,40 @@ async function handleSimplifyText(text) {
 			"geminiApiTested",
 		]);
 
-		// Prioritize Gemini if it has been tested successfully
+		const provider = settings.apiProvider || "chrome-ai";
+
+		// Try Chrome AI Rewriter first if Chrome AI is selected
+		if (provider === "chrome-ai") {
+			try {
+				if ("Rewriter" in self) {
+					const rewriter = await Rewriter.create({
+						tone: "as-is",
+						format: "plain-text",
+						length: "as-is",
+					});
+
+					const result = await rewriter.rewrite(text);
+					return result;
+				}
+			} catch (error) {
+				console.warn(
+					"Chrome AI Rewriter failed, falling back to Gemini:",
+					error
+				);
+			}
+		}
+
+		// Fallback to Gemini if available
 		if (settings.geminiApiTested && settings.geminiApiKey) {
 			return await simplifyWithGemini(text);
 		}
 
-		const provider = settings.apiProvider || "chrome-ai";
-
-		// For simplify, always use Gemini if available, otherwise return original text
 		if (provider === "gemini" && settings.geminiApiKey) {
 			return await simplifyWithGemini(text);
-		} else {
-			// For Chrome AI without Gemini, return original text with note
-			return `${text}\n\n(Note: Text simplification requires Gemini API configuration.)`;
 		}
+
+		// If no API is available, return original text with note
+		return `${text}\n\n(Note: Text simplification requires Chrome AI or Gemini API configuration.)`;
 	} catch (error) {
 		console.error("Error in handleSimplifyText:", error);
 		throw error;
