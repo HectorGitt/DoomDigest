@@ -500,11 +500,11 @@ chrome.runtime.onMessage.addListener((msg) => {
 				console.warn("Explain selected text failed:", e);
 			}
 		);
-	} else if (msg.type === "REWRITE_SELECTED_TEXT") {
-		// Handle rewriting selected text
-		handleRewriteSelectedText(msg.selectedText, msg.url, msg.title).catch(
+	} else if (msg.type === "SIMPLIFY_SELECTED_TEXT") {
+		// Handle simplifying selected text
+		handleSimplifySelectedText(msg.selectedText, msg.url, msg.title).catch(
 			(e) => {
-				console.warn("Rewrite selected text failed:", e);
+				console.warn("Simplify selected text failed:", e);
 			}
 		);
 	}
@@ -771,17 +771,17 @@ async function handleExplainSelectedText(selectedText, url, pageTitle) {
 	}
 }
 
-// Handle rewriting selected text
-async function handleRewriteSelectedText(selectedText, url, pageTitle) {
+// Handle simplifying selected text
+async function handleSimplifySelectedText(selectedText, url, pageTitle) {
 	try {
 		// Create a unique hash for the selected text
 		const contentHash = hashString(
-			selectedText + url + "rewrite" + Date.now()
+			selectedText + url + "simplify" + Date.now()
 		);
 
 		// Check if already processed
 		if (processedContentHashes.has(contentHash)) {
-			console.log("Selected text already rewritten");
+			console.log("Selected text already simplified");
 			return;
 		}
 
@@ -794,38 +794,38 @@ async function handleRewriteSelectedText(selectedText, url, pageTitle) {
 				? selectedText.slice(0, 50) + "..."
 				: selectedText;
 
-		// Notify sidebar that rewriting is starting
+		// Notify sidebar that simplifying is starting
 		await chrome.runtime.sendMessage({
 			type: "SUMMARIZING_START",
 			url: url,
-			title: `Rewriting selected text...`,
+			title: `Simplifying selected text...`,
 			contentHash: contentHash,
 		});
 
-		// Rewrite the selected text by sending to background script
-		const rewritten = await rewriteText(selectedText.slice(0, 2000)); // Limit for API
+		// Simplify the selected text by sending to background script
+		const simplified = await simplifyText(selectedText.slice(0, 2000)); // Limit for API
 
-		if (rewritten) {
-			// Send to sidebar with rewritten text
+		if (simplified) {
+			// Send to sidebar with simplified text
 			await chrome.runtime.sendMessage({
 				type: "NEW_SUMMARY",
-				summary: rewritten,
+				summary: simplified,
 				url: url,
-				title: `Rewritten: ${title}`,
+				title: `Simplified: ${title}`,
 				elementLink: url,
 				timestamp: Date.now(),
 				contentHash: contentHash,
 				isSelectedText: true,
 				originalText: selectedText, // Keep original text for reference
-				mode: "rewrite",
+				mode: "simplify",
 			});
 		} else {
-			// If rewriting fails, add the original text with a note
+			// If simplifying fails, add the original text with a note
 			await chrome.runtime.sendMessage({
 				type: "NEW_SUMMARY",
-				summary: `Could not generate rewrite. Original text: ${selectedText}`,
+				summary: `Could not generate simplification. Original text: ${selectedText}`,
 				url: url,
-				title: `Rewritten: ${title}`,
+				title: `Simplified: ${title}`,
 				elementLink: url,
 				timestamp: Date.now(),
 				contentHash: contentHash,
@@ -833,7 +833,7 @@ async function handleRewriteSelectedText(selectedText, url, pageTitle) {
 			});
 		}
 	} catch (e) {
-		console.error("Error in handleRewriteSelectedText:", e);
+		console.error("Error in handleSimplifySelectedText:", e);
 	}
 }
 
@@ -858,23 +858,23 @@ async function explainText(text) {
 	}
 }
 
-// Rewrite selected text using external API
-async function rewriteText(text) {
+// Simplify selected text using external API
+async function simplifyText(text) {
 	try {
 		// Send request to background script to handle API call
 		const response = await chrome.runtime.sendMessage({
-			type: "REWRITE_TEXT",
+			type: "SIMPLIFY_TEXT",
 			text: text,
 		});
 
 		if (response && response.success) {
 			return response.result;
 		} else {
-			console.warn("Rewrite failed:", response?.error);
+			console.warn("Simplify failed:", response?.error);
 			return null;
 		}
 	} catch (e) {
-		console.error("Error in rewriteText:", e);
+		console.error("Error in simplifyText:", e);
 		return null;
 	}
 }

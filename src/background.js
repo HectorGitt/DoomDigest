@@ -23,8 +23,8 @@ chrome.runtime.onInstalled.addListener(() => {
 	});
 
 	chrome.contextMenus.create({
-		id: "rewrite-selection",
-		title: "Rewrite",
+		id: "simplify-selection",
+		title: "Simplify",
 		contexts: ["selection"],
 	});
 });
@@ -59,12 +59,12 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 				title: tab.title,
 			});
 		}
-	} else if (info.menuItemId === "rewrite-selection") {
-		// Rewrite selected text
+	} else if (info.menuItemId === "simplify-selection") {
+		// Simplify selected text
 		const selectedText = info.selectionText;
 		if (selectedText && selectedText.trim().length > 0) {
 			chrome.tabs.sendMessage(tab.id, {
-				type: "REWRITE_SELECTED_TEXT",
+				type: "SIMPLIFY_SELECTED_TEXT",
 				selectedText: selectedText.trim(),
 				url: tab.url,
 				title: tab.title,
@@ -110,13 +110,13 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 
 // Handle API requests from content script
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-	if (request.type === "REWRITE_TEXT") {
-		handleRewriteText(request.text)
+	if (request.type === "SIMPLIFY_TEXT") {
+		handleSimplifyText(request.text)
 			.then((result) => {
 				sendResponse({ success: true, result });
 			})
 			.catch((error) => {
-				console.error("Rewrite text error:", error);
+				console.error("Simplify text error:", error);
 				sendResponse({ success: false, error: error.message });
 			});
 	} else if (request.type === "GET_SUMMARIES_FOR_EXPORT") {
@@ -254,8 +254,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 	}
 });
 
-// Rewrite text using the Rewriter API
-async function handleRewriteText(text) {
+// Simplify text using the Rewriter API
+async function handleSimplifyText(text) {
 	try {
 		// Get API provider settings
 		const settings = await chrome.storage.sync.get([
@@ -266,26 +266,26 @@ async function handleRewriteText(text) {
 
 		// Prioritize Gemini if it has been tested successfully
 		if (settings.geminiApiTested && settings.geminiApiKey) {
-			return await rewriteWithGemini(text);
+			return await simplifyWithGemini(text);
 		}
 
 		const provider = settings.apiProvider || "chrome-ai";
 
-		// For rewrite, always use Gemini if available, otherwise return original text
+		// For simplify, always use Gemini if available, otherwise return original text
 		if (provider === "gemini" && settings.geminiApiKey) {
-			return await rewriteWithGemini(text);
+			return await simplifyWithGemini(text);
 		} else {
 			// For Chrome AI without Gemini, return original text with note
-			return `${text}\n\n(Note: Text rewriting requires Gemini API configuration.)`;
+			return `${text}\n\n(Note: Text simplification requires Gemini API configuration.)`;
 		}
 	} catch (error) {
-		console.error("Error in handleRewriteText:", error);
+		console.error("Error in handleSimplifyText:", error);
 		throw error;
 	}
 }
 
-// Rewrite text using Gemini API
-async function rewriteWithGemini(text) {
+// Simplify text using Gemini API
+async function simplifyWithGemini(text) {
 	try {
 		const apiKey = await getGeminiApiKey();
 		if (!apiKey) {
@@ -295,20 +295,20 @@ async function rewriteWithGemini(text) {
 		const genAI = new GoogleGenerativeAI(apiKey);
 		const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-		const prompt = `Please rewrite the following text using different words and sentence structure while maintaining the original meaning and key information. Keep the same level of formality and tone:
+		const prompt = `Please simplify the following text by making it easier to understand while maintaining the original meaning and key information. Use simpler words and shorter sentences where appropriate, but keep the same level of formality and tone:
 
 ${text}
 
-Rewritten version:`;
+Simplified version:`;
 
 		const result = await model.generateContent(prompt);
 		const response = await result.response;
-		const rewrittenText = response.text().trim();
+		const simplifiedText = response.text().trim();
 
-		return rewrittenText;
+		return simplifiedText;
 	} catch (error) {
-		console.error("Gemini rewrite failed:", error);
-		throw new Error(`Gemini rewrite failed: ${error.message}`);
+		console.error("Gemini simplify failed:", error);
+		throw new Error(`Gemini simplify failed: ${error.message}`);
 	}
 }
 
