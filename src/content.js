@@ -507,13 +507,6 @@ chrome.runtime.onMessage.addListener((msg) => {
 				console.warn("Rewrite selected text failed:", e);
 			}
 		);
-	} else if (msg.type === "SIMPLIFY_SELECTED_TEXT") {
-		// Handle simplifying selected text
-		handleSimplifySelectedText(msg.selectedText, msg.url, msg.title).catch(
-			(e) => {
-				console.warn("Simplify selected text failed:", e);
-			}
-		);
 	}
 });
 
@@ -778,72 +771,6 @@ async function handleExplainSelectedText(selectedText, url, pageTitle) {
 	}
 }
 
-// Handle simplifying selected text
-async function handleSimplifySelectedText(selectedText, url, pageTitle) {
-	try {
-		// Create a unique hash for the selected text
-		const contentHash = hashString(
-			selectedText + url + "simplify" + Date.now()
-		);
-
-		// Check if already processed
-		if (processedContentHashes.has(contentHash)) {
-			console.log("Selected text already simplified");
-			return;
-		}
-
-		// Mark as processed to avoid duplicates
-		processedContentHashes.add(contentHash);
-
-		// Create a title for the selected text
-		const title =
-			selectedText.length > 50
-				? selectedText.slice(0, 50) + "..."
-				: selectedText;
-
-		// Notify sidebar that simplification is starting
-		await chrome.runtime.sendMessage({
-			type: "SUMMARIZING_START",
-			url: url,
-			title: `Simplifying selected text...`,
-			contentHash: contentHash,
-		});
-
-		// Simplify the selected text by sending to background script
-		const simplification = await simplifyText(selectedText.slice(0, 2000)); // Limit for API
-
-		if (simplification) {
-			// Send to sidebar with simplification
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: simplification,
-				url: url,
-				title: `Simplified: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-				originalText: selectedText, // Keep original text for reference
-				mode: "simplify",
-			});
-		} else {
-			// If simplification fails, add the original text with a note
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: `Could not generate simplification. Original text: ${selectedText}`,
-				url: url,
-				title: `Simplified: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-			});
-		}
-	} catch (e) {
-		console.error("Error in handleSimplifySelectedText:", e);
-	}
-}
-
 // Handle rewriting selected text
 async function handleRewriteSelectedText(selectedText, url, pageTitle) {
 	try {
@@ -927,27 +854,6 @@ async function explainText(text) {
 		}
 	} catch (e) {
 		console.error("Error in explainText:", e);
-		return null;
-	}
-}
-
-// Simplify selected text using external API
-async function simplifyText(text) {
-	try {
-		// Send request to background script to handle API call
-		const response = await chrome.runtime.sendMessage({
-			type: "SIMPLIFY_TEXT",
-			text: text,
-		});
-
-		if (response && response.success) {
-			return response.result;
-		} else {
-			console.warn("Simplification failed:", response?.error);
-			return null;
-		}
-	} catch (e) {
-		console.error("Error in simplifyText:", e);
 		return null;
 	}
 }

@@ -6,27 +6,10 @@ document.addEventListener("DOMContentLoaded", function () {
 	const apiProviderSelect = document.getElementById("api-provider");
 	const chromeAiIndicator = document.getElementById("chrome-ai-indicator");
 	const geminiSettings = document.getElementById("gemini-settings");
-	const promptapiSettings = document.getElementById("promptapi-settings");
 	const geminiApiKey = document.getElementById("gemini-api-key");
-	const promptapiKey = document.getElementById("promptapi-key");
 	const testGeminiBtn = document.getElementById("test-gemini");
-	const testPromptapiBtn = document.getElementById("test-promptapi");
 	const geminiTestResult = document.getElementById("gemini-test-result");
-	const promptapiTestResult = document.getElementById(
-		"promptapi-test-result"
-	);
-	const rewriterapiTestResult = document.getElementById(
-		"rewriterapi-test-result"
-	);
-	const rewriterApiIndicator = document.getElementById(
-		"rewriter-api-indicator"
-	);
-	const promptApiIndicator = document.getElementById("prompt-api-indicator");
 	const downloadChromeAiBtn = document.getElementById("download-chrome-ai");
-	const downloadRewriterApiBtn = document.getElementById(
-		"download-rewriter-api"
-	);
-	const downloadPromptApiBtn = document.getElementById("download-prompt-api");
 	const defaultSummaryType = document.getElementById("default-summary-type");
 	const autoSummarize = document.getElementById("auto-summarize");
 	const smartTopics = document.getElementById("smart-topics");
@@ -43,6 +26,13 @@ document.addEventListener("DOMContentLoaded", function () {
 	// Remove key button
 	const removeGeminiKeyBtn = document.getElementById("remove-gemini-key");
 
+	// Google Drive buttons
+	const connectGoogleDriveBtn = document.getElementById(
+		"connect-google-drive"
+	);
+	const syncGoogleDriveBtn = document.getElementById("sync-google-drive");
+	const googleDriveStatus = document.getElementById("google-drive-status");
+
 	// Load saved settings
 	loadSettings();
 
@@ -58,8 +48,6 @@ document.addEventListener("DOMContentLoaded", function () {
 
 	// Download buttons
 	downloadChromeAiBtn.addEventListener("click", downloadChromeAIModel);
-	downloadRewriterApiBtn.addEventListener("click", downloadRewriterAPIModel);
-	downloadPromptApiBtn.addEventListener("click", downloadPromptAPIModel);
 
 	// Setting changes
 	geminiApiKey.addEventListener("input", saveSettings);
@@ -87,33 +75,22 @@ document.addEventListener("DOMContentLoaded", function () {
 	// Remove key button
 	removeGeminiKeyBtn.addEventListener("click", removeGeminiKey);
 
+	// Google Drive buttons
+	connectGoogleDriveBtn.addEventListener("click", connectGoogleDrive);
+	syncGoogleDriveBtn.addEventListener("click", syncToGoogleDrive);
+
 	// Initialize
 	checkAllAPIStatuses();
 
 	async function checkAllAPIStatuses() {
-		// Check all API statuses concurrently
-		const [chromeAIStatus, rewriterStatus, promptStatus] =
-			await Promise.all([
-				checkAPIStatus("summarizer"),
-				checkAPIStatus("rewriter"),
-				checkAPIStatus("prompt"),
-			]);
+		// Check Chrome AI status
+		const chromeAIStatus = await checkAPIStatus("summarizer");
 
-		// Update all indicators at once
+		// Update indicator
 		updateStatusIndicator(
 			chromeAiIndicator,
 			chromeAIStatus,
 			downloadChromeAiBtn
-		);
-		updateStatusIndicator(
-			rewriterApiIndicator,
-			rewriterStatus,
-			downloadRewriterApiBtn
-		);
-		updateStatusIndicator(
-			promptApiIndicator,
-			promptStatus,
-			downloadPromptApiBtn
 		);
 	}
 
@@ -127,6 +104,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				"smartTopics",
 				"showAdvancedAiStatus",
 				"geminiApiTested",
+				"googleDriveConnected",
 			],
 			function (result) {
 				apiProviderSelect.value = result.apiProvider || "chrome-ai";
@@ -141,6 +119,13 @@ document.addEventListener("DOMContentLoaded", function () {
 				// If Gemini API has been tested successfully, prioritize it
 				if (result.geminiApiTested && result.geminiApiKey) {
 					apiProviderSelect.value = "gemini";
+				}
+
+				// Google Drive connection status
+				if (result.googleDriveConnected) {
+					connectGoogleDriveBtn.style.display = "none";
+					syncGoogleDriveBtn.style.display = "inline-block";
+					googleDriveStatus.style.display = "inline-block";
 				}
 
 				// Apply settings after loading
@@ -165,14 +150,7 @@ document.addEventListener("DOMContentLoaded", function () {
 	function toggleApiSettings(provider) {
 		// Always show Chrome AI status panels for reference
 		document.getElementById("chrome-ai-status").style.display = "block";
-		document.getElementById("show-advanced-status").style.display = "block";
-
-		// Show advanced AI status panels when toggle is checked (regardless of provider)
-		const showAdvanced = showAdvancedAiStatus.checked;
-		document.getElementById("rewriter-api-status").style.display =
-			showAdvanced ? "block" : "none";
-		document.getElementById("prompt-api-status").style.display =
-			showAdvanced ? "block" : "none";
+		document.getElementById("show-advanced-status").style.display = "none"; // Hide advanced status since we removed experimental APIs
 
 		// Show Gemini settings when Gemini is selected OR when API key exists
 		const hasGeminiKey = geminiApiKey.value.trim().length > 0;
@@ -185,91 +163,43 @@ document.addEventListener("DOMContentLoaded", function () {
 		updateStatusIndicator(chromeAiIndicator, status, downloadChromeAiBtn);
 	}
 
-	async function checkRewriterAPIStatus() {
-		const status = await checkAPIStatus("rewriter");
-		updateStatusIndicator(
-			rewriterApiIndicator,
-			status,
-			downloadRewriterApiBtn
-		);
-	}
-
-	async function checkPromptAPIStatus() {
-		const status = await checkAPIStatus("prompt");
-		updateStatusIndicator(promptApiIndicator, status, downloadPromptApiBtn);
-	}
-
-	// Unified API status checker
+	// API status checker
 	async function checkAPIStatus(apiType) {
 		try {
-			let availability;
-
-			switch (apiType) {
-				case "summarizer":
-					// Try modern surface first, then fallback to global Summarizer
-					if ("Summarizer" in self) {
-						availability = await self.Summarizer.availability();
-					} else if (
-						typeof Summarizer !== "undefined" &&
-						typeof Summarizer.availability === "function"
-					) {
-						availability = await Summarizer.availability();
-					} else {
-						return "unavailable";
+			if (apiType === "summarizer") {
+				// Try modern surface first, then fallback to global Summarizer
+				if ("Summarizer" in self) {
+					const availability = await self.Summarizer.availability();
+					switch (availability) {
+						case "available":
+							return "readily";
+						case "downloading":
+							return "downloading";
+						case "downloadable":
+							return "after-download";
+						default:
+							return "no";
 					}
-					break;
-				// Normalize: available -> readily, downloadable -> after-download
-				case "rewriter":
-					// Prefer modern surface: self.ai.writer, but fall back to global Rewriter if present
-					if (
-						"ai" in self &&
-						self.ai &&
-						"writer" in self.ai &&
-						typeof self.ai.writer.availability === "function"
-					) {
-						availability = await self.ai.writer.availability();
-					} else if (
-						typeof Rewriter !== "undefined" &&
-						typeof Rewriter.availability === "function"
-					) {
-						availability = await Rewriter.availability();
-					} else {
-						return "unavailable";
+				} else if (
+					typeof Summarizer !== "undefined" &&
+					typeof Summarizer.availability === "function"
+				) {
+					const availability = await Summarizer.availability();
+					switch (availability) {
+						case "available":
+							return "readily";
+						case "downloading":
+							return "downloading";
+						case "downloadable":
+							return "after-download";
+						default:
+							return "no";
 					}
-					break;
-				case "prompt":
-					// Prefer modern surface: self.ai.languageModel, but fall back to global LanguageModel if present
-					if (
-						"ai" in self &&
-						self.ai &&
-						"languageModel" in self.ai &&
-						typeof self.ai.languageModel.availability === "function"
-					) {
-						availability =
-							await self.ai.languageModel.availability();
-					} else if (
-						typeof LanguageModel !== "undefined" &&
-						typeof LanguageModel.availability === "function"
-					) {
-						availability = await LanguageModel.availability();
-					} else {
-						return "unavailable";
-					}
-					break;
-				default:
+				} else {
 					return "unavailable";
+				}
 			}
-
-			switch (availability) {
-				case "available":
-					return "readily";
-				case "downloading":
-					return "downloading";
-				case "downloadable":
-					return "after-download";
-				default:
-					return "no";
-			}
+			return "unavailable";
 		} catch (e) {
 			console.error(`${apiType} API check failed:`, e);
 			return "error";
@@ -325,25 +255,7 @@ document.addEventListener("DOMContentLoaded", function () {
 		);
 	}
 
-	async function downloadRewriterAPIModel() {
-		await downloadAPIModel(
-			"rewriter",
-			downloadRewriterApiBtn,
-			rewriterApiIndicator,
-			checkRewriterAPIStatus
-		);
-	}
-
-	async function downloadPromptAPIModel() {
-		await downloadAPIModel(
-			"prompt",
-			downloadPromptApiBtn,
-			promptApiIndicator,
-			checkPromptAPIStatus
-		);
-	}
-
-	// Unified API model downloader
+	// API model downloader
 	async function downloadAPIModel(
 		apiType,
 		downloadBtn,
@@ -357,49 +269,19 @@ document.addEventListener("DOMContentLoaded", function () {
 			indicator.textContent = "Downloading...";
 			indicator.className = "status-indicator downloading";
 
-			let instance;
-
-			switch (apiType) {
-				case "summarizer":
-					instance = await self.Summarizer.create({
-						type: "key-points",
-						format: "plain-text",
-						length: "medium",
-						monitor(m) {
-							m.addEventListener("downloadprogress", (e) => {
-								console.log(
-									`Summarizer downloaded ${e.loaded * 100}%`
-								);
-							});
-						},
-					});
-					break;
-
-				case "rewriter":
-					instance = await self.ai.writer.create({
-						monitor(m) {
-							m.addEventListener("downloadprogress", (e) => {
-								console.log(
-									`Rewriter downloaded ${e.loaded * 100}%`
-								);
-							});
-						},
-					});
-					break;
-
-				case "prompt":
-					instance = await self.ai.languageModel.create({
-						monitor(m) {
-							m.addEventListener("downloadprogress", (e) => {
-								console.log(
-									`Language Model downloaded ${
-										e.loaded * 100
-									}%`
-								);
-							});
-						},
-					});
-					break;
+			if (apiType === "summarizer") {
+				const instance = await self.Summarizer.create({
+					type: "key-points",
+					format: "plain-text",
+					length: "medium",
+					monitor(m) {
+						m.addEventListener("downloadprogress", (e) => {
+							console.log(
+								`Summarizer downloaded ${e.loaded * 100}%`
+							);
+						});
+					},
+				});
 			}
 
 			// Check status again after a short delay to see if download completed
@@ -621,5 +503,90 @@ document.addEventListener("DOMContentLoaded", function () {
 		});
 
 		URL.revokeObjectURL(url);
+	}
+
+	async function connectGoogleDrive() {
+		try {
+			connectGoogleDriveBtn.disabled = true;
+			connectGoogleDriveBtn.textContent = "Connecting...";
+
+			// Send connect request to background script
+			const connectResponse = await chrome.runtime.sendMessage({
+				type: "CONNECT_GOOGLE_DRIVE",
+			});
+
+			if (connectResponse.success) {
+				// Store connection status
+				chrome.storage.sync.set({ googleDriveConnected: true });
+
+				// Update UI
+				connectGoogleDriveBtn.style.display = "none";
+				syncGoogleDriveBtn.style.display = "inline-block";
+				googleDriveStatus.style.display = "inline-block";
+
+				alert("Successfully connected to Google Drive!");
+			} else {
+				alert(connectResponse.error);
+			}
+		} catch (error) {
+			console.error("Google Drive connection failed:", error);
+			alert("Failed to connect to Google Drive: " + error.message);
+		} finally {
+			connectGoogleDriveBtn.disabled = false;
+			connectGoogleDriveBtn.textContent = "Connect";
+		}
+	}
+
+	async function syncToGoogleDrive() {
+		try {
+			syncGoogleDriveBtn.disabled = true;
+			syncGoogleDriveBtn.textContent = "Syncing...";
+
+			// Get summaries
+			const response = await chrome.runtime.sendMessage({
+				type: "GET_SUMMARIES_FOR_EXPORT",
+			});
+
+			if (
+				!response ||
+				!response.summaries ||
+				response.summaries.length === 0
+			) {
+				alert("No summaries to sync");
+				return;
+			}
+
+			const summaries = response.summaries;
+
+			// Send sync request to background script
+			const syncResponse = await chrome.runtime.sendMessage({
+				type: "SYNC_TO_GOOGLE_DRIVE",
+				summaries: summaries,
+			});
+
+			if (syncResponse.success) {
+				alert(syncResponse.message);
+			} else {
+				// Clear connection status on auth errors
+				if (
+					syncResponse.error.includes("access_denied") ||
+					syncResponse.error.includes("invalid_grant")
+				) {
+					chrome.storage.sync.remove(["googleDriveConnected"], () => {
+						// Reset UI to show connect button
+						connectGoogleDriveBtn.style.display = "inline-block";
+						syncGoogleDriveBtn.style.display = "none";
+						googleDriveStatus.style.display = "none";
+					});
+				}
+				alert(syncResponse.error);
+			}
+		} catch (error) {
+			console.error("Google Drive sync failed:", error);
+			alert("Failed to sync to Google Drive: " + error.message);
+		} finally {
+			syncGoogleDriveBtn.disabled = false;
+			syncGoogleDriveBtn.textContent = "Sync Digest";
+		}
 	}
 });

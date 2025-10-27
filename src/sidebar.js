@@ -751,3 +751,23 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 		checkAPIStatus();
 	}
 });
+
+// Handle messages from settings for export
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+	if (message.type === "GET_SUMMARIES_FOR_EXPORT") {
+		sendResponse({ summaries: summaries });
+		return true; // Keep the message channel open for async response
+	}
+});
+
+// Load persisted summaries on init
+chrome.storage.sync.get(["summaries", "processedContentHashes"], (result) => {
+	if (result.summaries) {
+		summaries = result.summaries;
+		renderGroupedSummaries();
+		statusDiv.textContent = `${summaries.length} summaries`;
+	}
+	if (result.processedContentHashes) {
+		processedContentHashes = new Set(result.processedContentHashes);
+	}
+});

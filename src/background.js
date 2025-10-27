@@ -27,12 +27,6 @@ chrome.runtime.onInstalled.addListener(() => {
 		title: "Rewrite",
 		contexts: ["selection"],
 	});
-
-	chrome.contextMenus.create({
-		id: "simplify-selection",
-		title: "Simplify",
-		contexts: ["selection"],
-	});
 });
 
 // Handle context menu clicks
@@ -71,17 +65,6 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 		if (selectedText && selectedText.trim().length > 0) {
 			chrome.tabs.sendMessage(tab.id, {
 				type: "REWRITE_SELECTED_TEXT",
-				selectedText: selectedText.trim(),
-				url: tab.url,
-				title: tab.title,
-			});
-		}
-	} else if (info.menuItemId === "simplify-selection") {
-		// Simplify selected text
-		const selectedText = info.selectionText;
-		if (selectedText && selectedText.trim().length > 0) {
-			chrome.tabs.sendMessage(tab.id, {
-				type: "SIMPLIFY_SELECTED_TEXT",
 				selectedText: selectedText.trim(),
 				url: tab.url,
 				title: tab.title,
@@ -136,17 +119,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				console.error("Rewrite text error:", error);
 				sendResponse({ success: false, error: error.message });
 			});
-		return true; // Keep message channel open for async response
-	} else if (request.type === "SIMPLIFY_TEXT") {
-		handleSimplifyText(request.text)
-			.then((result) => {
-				sendResponse({ success: true, result });
-			})
-			.catch((error) => {
-				console.error("Simplify text error:", error);
-				sendResponse({ success: false, error: error.message });
-			});
-		return true; // Keep message channel open for async response
 	} else if (request.type === "GET_SUMMARIES_FOR_EXPORT") {
 		// Handle export request from settings page
 		chrome.storage.sync.get(["summaries"], (result) => {
@@ -154,6 +126,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				summaries: result.summaries || [],
 			});
 		});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "SYNC_TO_GOOGLE_DRIVE") {
+		// Handle Google Drive sync request from settings page
+		handleGoogleDriveSync(request.summaries)
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Google Drive sync error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "CONNECT_GOOGLE_DRIVE") {
+		// Handle Google Drive connect request from settings page
+		handleGoogleDriveConnect()
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Google Drive connect error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
 		return true; // Keep message channel open for async response
 	}
 });
@@ -175,64 +169,15 @@ async function handleRewriteText(text) {
 
 		const provider = settings.apiProvider || "chrome-ai";
 
-		// Always use Rewriter API for rewrite functionality
-		if (provider === "gemini") {
-			// For Gemini, use a rewrite-style prompt
+		// For rewrite, always use Gemini if available, otherwise return original text
+		if (provider === "gemini" && settings.geminiApiKey) {
 			return await rewriteWithGemini(text);
 		} else {
-			// For Chrome AI or other providers, use the Rewriter API
-			return await rewriteWithRewriterAPI(text);
+			// For Chrome AI without Gemini, return original text with note
+			return `${text}\n\n(Note: Text rewriting requires Gemini API configuration.)`;
 		}
 	} catch (error) {
 		console.error("Error in handleRewriteText:", error);
-		throw error;
-	}
-}
-
-// Simplify text using the selected API provider
-async function handleSimplifyText(text) {
-	try {
-		// Get API provider settings
-		const settings = await chrome.storage.sync.get([
-			"apiProvider",
-			"geminiApiKey",
-			"geminiApiTested",
-		]);
-
-		// Prioritize Gemini if it has been tested successfully
-		if (settings.geminiApiTested && settings.geminiApiKey) {
-			return await simplifyWithGemini(text, settings.geminiApiKey);
-		}
-
-		const provider = settings.apiProvider || "chrome-ai";
-
-		if (provider === "chrome-ai") {
-			// For Chrome AI, we'll use a different approach since it doesn't support custom prompts
-			// Fall back to a basic simplification or use available built-in APIs
-			if (settings.geminiApiKey) {
-				return await simplifyWithGemini(text, settings.geminiApiKey);
-			} else if ("ai" in self && "writer" in self.ai) {
-				return await simplifyWithRewriterAPI(text);
-			} else if ("ai" in self && "languageModel" in self.ai) {
-				return await simplifyWithPromptAPI(text);
-			} else {
-				// Return a fallback message
-				return `Simplified: ${text}\n\n(Note: Chrome AI doesn't support custom prompts. Please configure Gemini API or ensure your browser supports built-in AI APIs for better simplifications.)`;
-			}
-		} else if (provider === "gemini") {
-			if (!settings.geminiApiKey) {
-				throw new Error("Gemini API key not configured");
-			}
-			return await simplifyWithGemini(text, settings.geminiApiKey);
-		} else if (provider === "promptapi") {
-			return await simplifyWithPromptAPI(text);
-		} else if (provider === "rewriterapi") {
-			return await simplifyWithRewriterAPI(text);
-		} else {
-			throw new Error("Unknown API provider");
-		}
-	} catch (error) {
-		console.error("Error in handleSimplifyText:", error);
 		throw error;
 	}
 }
@@ -265,53 +210,6 @@ Rewritten version:`;
 	}
 }
 
-// Simplify text using Gemini API
-async function simplifyWithGemini(text, apiKey) {
-	const genAI = new GoogleGenerativeAI(apiKey);
-	const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-	const prompt = `Please simplify the following text. Use simpler words and shorter sentences. Make it easier to understand while keeping the main ideas:\n\n${text}`;
-
-	const result = await model.generateContent(prompt);
-	const response = await result.response;
-	return response.text();
-}
-
-// Simplify text using PromptAPI (Gemini Nano in browser)
-async function simplifyWithPromptAPI(text) {
-	// PromptAPI uses Chrome's built-in Prompt API with Gemini Nano
-	if (!("ai" in self) || !("languageModel" in self.ai)) {
-		throw new Error(
-			"PromptAPI (Language Model API) not supported in this browser"
-		);
-	}
-
-	try {
-		const capabilities = await self.ai.languageModel.capabilities();
-		if (capabilities.available === "no") {
-			throw new Error("Language Model API is not available");
-		}
-
-		const languageModel = await self.ai.languageModel.create({
-			initialPrompts: [
-				{
-					role: "system",
-					content:
-						"You are an expert at simplifying complex text. Use simpler words and shorter sentences while keeping the main ideas.",
-				},
-			],
-		});
-
-		const prompt = `Please simplify the following text. Use easier words and shorter sentences. Make it easier to understand while keeping the main ideas:\n\n${text}`;
-		const result = await languageModel.prompt(prompt);
-
-		return result;
-	} catch (error) {
-		console.error("PromptAPI simplification failed:", error);
-		throw new Error(`PromptAPI simplification failed: ${error.message}`);
-	}
-}
-
 // Get Gemini API key from storage
 async function getGeminiApiKey() {
 	try {
@@ -323,71 +221,148 @@ async function getGeminiApiKey() {
 	}
 }
 
-// Rewrite text using RewriterApi (Chrome Writer API)
-async function rewriteWithRewriterAPI(text) {
+// Handle Google Drive sync
+async function handleGoogleDriveSync(summaries) {
 	try {
-		// Check Rewriter API availability
-		if (typeof Rewriter === "undefined" || !Rewriter.availability) {
-			throw new Error("Rewriter API not available in this browser");
-		}
-
-		const available = await Rewriter.availability();
-		if (available !== "available") {
-			throw new Error(
-				"Rewriter API model not downloaded. Please enable AI features in Chrome settings to download the model."
-			);
-		}
-
-		const writer = await Rewriter.create({
-			sharedContext:
-				"You are an expert at rewriting text in different ways while maintaining the original meaning.",
-			tone: "as-is",
-			format: "plain-text",
-			length: "as-is",
+		// Get auth token - use interactive mode to prompt for auth if needed
+		const token = await new Promise((resolve, reject) => {
+			chrome.identity.getAuthToken({ interactive: true }, (token) => {
+				if (chrome.runtime.lastError) {
+					reject(chrome.runtime.lastError);
+				} else {
+					resolve(token);
+				}
+			});
 		});
 
-		const stream = await writer.rewrite(text, {
-			context:
-				"Please rewrite this text using different words and sentence structure while keeping the same meaning and key information.",
-		});
+		// Sync summaries to Google Drive
+		await syncSummariesToDrive(token, summaries);
 
-		return await stream;
+		return {
+			success: true,
+			message: "Successfully synced digest to Google Drive!",
+		};
 	} catch (error) {
-		console.error("RewriterApi rewrite failed:", error);
-		throw new Error(`RewriterApi rewrite failed: ${error.message}`);
+		console.error("Google Drive sync failed:", error);
+
+		// Provide more specific error messages
+		let errorMessage = error.message;
+		if (error.message.includes("-100")) {
+			errorMessage =
+				"Network connection failed. Please check your internet connection and try again.";
+		} else if (error.message.includes("access_denied")) {
+			errorMessage =
+				"Access denied. Please reconnect to Google Drive and grant permissions.";
+		} else if (error.message.includes("invalid_grant")) {
+			errorMessage =
+				"Authentication expired. Please reconnect to Google Drive.";
+		} else if (error.message.includes("403")) {
+			errorMessage =
+				"Permission denied. Please check that you have access to create files in Drive.";
+		}
+
+		return { success: false, error: errorMessage };
 	}
 }
 
-// Simplify text using RewriterApi (Chrome Writer API)
-async function simplifyWithRewriterAPI(text) {
+// Handle Google Drive connect
+async function handleGoogleDriveConnect() {
 	try {
-		// Check Rewriter API availability
-		if (typeof Rewriter === "undefined" || !Rewriter.availability) {
-			throw new Error("Rewriter API not available in this browser");
-		}
-
-		const available = await Rewriter.availability();
-		if (available !== "available") {
-			throw new Error(
-				"Rewriter API model not downloaded. Please enable AI features in Chrome settings to download the model."
-			);
-		}
-
-		const writer = await Rewriter.create({
-			sharedContext: "You are an expert at simplifying complex text.",
-			tone: "more-casual",
-			format: "plain-text",
-			length: "as-is",
+		// Get auth token - use interactive mode to prompt for auth
+		const token = await new Promise((resolve, reject) => {
+			chrome.identity.getAuthToken({ interactive: true }, (token) => {
+				if (chrome.runtime.lastError) {
+					reject(chrome.runtime.lastError);
+				} else {
+					resolve(token);
+				}
+			});
 		});
 
-		const stream = await writer.rewrite(text, {
-			context:
-				"Please simplify this text using easier words and shorter sentences.",
-		});
+		// Test the token by making a simple API call
+		const testResponse = await fetch(
+			"https://www.googleapis.com/drive/v3/files?pageSize=1",
+			{
+				headers: {
+					Authorization: `Bearer ${token}`,
+				},
+			}
+		);
 
-		return await stream;
+		if (!testResponse.ok) {
+			throw new Error(`Token validation failed: ${testResponse.status}`);
+		}
+
+		return {
+			success: true,
+			message: "Successfully connected to Google Drive!",
+		};
 	} catch (error) {
-		console.error("RewriterApi simplification failed:", error);
-		throw new Error(`RewriterApi simplification failed: ${error.message}`);
+		console.error("Google Drive connect failed:", error);
+
+		// Provide more specific error messages
+		let errorMessage = error.message;
+		if (error.message.includes("-100")) {
+			errorMessage =
+				"Network connection failed. Please check your internet connection and try again.";
+		} else if (error.message.includes("access_denied")) {
+			errorMessage =
+				"Access denied. Please grant the necessary permissions and try again.";
+		} else if (error.message.includes("invalid_client")) {
+			errorMessage =
+				"Invalid client configuration. Please check the OAuth setup in manifest.json.";
+		}
+
+		return { success: false, error: errorMessage };
 	}
+}
+
+async function syncSummariesToDrive(token, summaries) {
+	const fileName = `DoomDigest-${new Date().toISOString().split("T")[0]}.md`;
+	const markdownContent = createMarkdownContent(summaries);
+
+	try {
+		const response = await fetch(
+			"https://digest-store-850708581112.us-central1.run.app",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					fileName: fileName,
+					content: markdownContent,
+				}),
+			}
+		);
+
+		if (!response.ok) {
+			throw new Error(`Cloud function error: ${response.status}`);
+		}
+
+		const result = await response.json();
+		return result;
+	} catch (error) {
+		console.error("Cloud function call failed:", error);
+		throw error;
+	}
+}
+
+function createMarkdownContent(summaries) {
+	let content = `# DoomDigest Export\n\n`;
+	content += `*Generated on ${new Date().toLocaleString()}*\n\n`;
+	content += `---\n\n`;
+
+	summaries.forEach((summary, index) => {
+		content += `## ${index + 1}. ${summary.title}\n\n`;
+		content += `**URL:** ${summary.url}\n\n`;
+		content += `**Time:** ${new Date(
+			summary.timestamp
+		).toLocaleString()}\n\n`;
+		content += `${summary.summary}\n\n`;
+		content += `---\n\n`;
+	});
+
+	return content;
 }
