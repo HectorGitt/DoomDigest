@@ -42,6 +42,14 @@ document.addEventListener("DOMContentLoaded", function () {
 	const lastSyncInfo = document.getElementById("last-sync-info");
 	const lastSyncText = document.getElementById("last-sync-text");
 
+	// Auto-sync day pickers
+	const weeklySyncSettings = document.getElementById("weekly-sync-settings");
+	const monthlySyncSettings = document.getElementById(
+		"monthly-sync-settings"
+	);
+	const weeklySyncDay = document.getElementById("weekly-sync-day");
+	const monthlySyncDay = document.getElementById("monthly-sync-day");
+
 	// Notification settings
 	const enableAiNotifications = document.getElementById(
 		"enable-ai-notifications"
@@ -81,9 +89,14 @@ document.addEventListener("DOMContentLoaded", function () {
 
 	// Auto-sync frequency
 	autoSyncFrequency.addEventListener("change", function () {
+		toggleSyncDayPickers(this.value);
 		saveSettings();
 		updateAutoSyncSchedule(this.value);
 	});
+
+	// Auto-sync day pickers
+	weeklySyncDay.addEventListener("change", saveSettings);
+	monthlySyncDay.addEventListener("change", saveSettings);
 
 	// Notification settings
 	enableAiNotifications.addEventListener("change", saveSettings);
@@ -114,6 +127,13 @@ document.addEventListener("DOMContentLoaded", function () {
 	// Initialize
 	checkAllAPIStatuses();
 
+	function toggleSyncDayPickers(frequency) {
+		weeklySyncSettings.style.display =
+			frequency === "weekly" ? "flex" : "none";
+		monthlySyncSettings.style.display =
+			frequency === "monthly" ? "flex" : "none";
+	}
+
 	async function checkAllAPIStatuses() {
 		// Check Chrome AI status
 		const chromeAIStatus = await checkAPIStatus("summarizer");
@@ -140,6 +160,8 @@ document.addEventListener("DOMContentLoaded", function () {
 				"geminiApiTested",
 				"googleDriveConnected",
 				"autoSyncFrequency",
+				"weeklySyncDay",
+				"monthlySyncDay",
 				"enableAiNotifications",
 				"enableExportNotifications",
 				"enableSyncIndicators",
@@ -157,6 +179,10 @@ document.addEventListener("DOMContentLoaded", function () {
 				// Auto-sync frequency
 				autoSyncFrequency.value =
 					result.autoSyncFrequency || "disabled";
+
+				// Auto-sync day preferences
+				weeklySyncDay.value = result.weeklySyncDay || "1"; // Default to Monday
+				monthlySyncDay.value = result.monthlySyncDay || "1"; // Default to 1st
 
 				// Notification settings
 				enableAiNotifications.checked =
@@ -181,6 +207,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 				// Apply settings after loading
 				toggleApiSettings(apiProviderSelect.value);
+				toggleSyncDayPickers(autoSyncFrequency.value);
 			}
 		);
 	}
@@ -194,6 +221,8 @@ document.addEventListener("DOMContentLoaded", function () {
 			smartTopics: smartTopics.checked,
 			showAdvancedAiStatus: showAdvancedAiStatus.checked,
 			autoSyncFrequency: autoSyncFrequency.value,
+			weeklySyncDay: weeklySyncDay.value,
+			monthlySyncDay: monthlySyncDay.value,
 			enableAiNotifications: enableAiNotifications.checked,
 			enableExportNotifications: enableExportNotifications.checked,
 			enableSyncIndicators: enableSyncIndicators.checked,
@@ -732,7 +761,11 @@ document.addEventListener("DOMContentLoaded", function () {
 
 			// Set up new alarm if frequency is not disabled
 			if (frequency !== "disabled") {
-				const alarmInfo = getAlarmInfo(frequency);
+				const alarmInfo = getAlarmInfo(
+					frequency,
+					weeklySyncDay.value,
+					monthlySyncDay.value
+				);
 				await chrome.runtime.sendMessage({
 					type: "SET_AUTO_SYNC_ALARM",
 					alarmInfo: alarmInfo,
@@ -743,7 +776,9 @@ document.addEventListener("DOMContentLoaded", function () {
 		}
 	}
 
-	function getAlarmInfo(frequency) {
+	function getAlarmInfo(frequency, weeklyDay, monthlyDay) {
+		const now = new Date();
+
 		switch (frequency) {
 			case "minute":
 				return {
@@ -752,16 +787,76 @@ document.addEventListener("DOMContentLoaded", function () {
 					periodInMinutes: 1,
 				};
 			case "weekly":
+				// Calculate delay until next occurrence of selected day of week
+				const targetDayOfWeek = parseInt(weeklyDay);
+				const currentDayOfWeek = now.getDay(); // 0 = Sunday, 1 = Monday, etc.
+				let daysUntilTarget = targetDayOfWeek - currentDayOfWeek;
+
+				if (daysUntilTarget <= 0) {
+					daysUntilTarget += 7; // Next week if today or past
+				}
+
+				const nextSyncTime = new Date(now);
+				nextSyncTime.setDate(now.getDate() + daysUntilTarget);
+				nextSyncTime.setHours(9, 0, 0, 0); // Set to 9:00 AM
+
+				// If the target time has already passed today, move to next week
+				if (daysUntilTarget === 0 && now >= nextSyncTime) {
+					nextSyncTime.setDate(nextSyncTime.getDate() + 7);
+				}
+
+				const delayInMinutes = Math.ceil(
+					(nextSyncTime - now) / (1000 * 60)
+				);
+
 				return {
 					name: "autoSync",
-					delayInMinutes: 7 * 24 * 60, // 7 days
-					periodInMinutes: 7 * 24 * 60,
+					delayInMinutes: delayInMinutes,
+					periodInMinutes: 7 * 24 * 60, // Weekly
 				};
 			case "monthly":
+				// Calculate delay until next occurrence of selected day of month
+				const targetDayOfMonth = parseInt(monthlyDay);
+				const currentDayOfMonth = now.getDate();
+				const currentMonth = now.getMonth();
+				const currentYear = now.getFullYear();
+
+				let targetMonth = currentMonth;
+				let targetYear = currentYear;
+
+				// If target day has passed this month, move to next month
+				if (currentDayOfMonth > targetDayOfMonth) {
+					targetMonth++;
+					if (targetMonth > 11) {
+						targetMonth = 0;
+						targetYear++;
+					}
+				}
+
+				const nextMonthlySyncTime = new Date(
+					targetYear,
+					targetMonth,
+					targetDayOfMonth,
+					9,
+					0,
+					0,
+					0
+				);
+
+				// Handle invalid dates (e.g., February 31st becomes March 1st or 3rd)
+				if (nextMonthlySyncTime.getDate() !== targetDayOfMonth) {
+					// Date was invalid, use the last day of the month
+					nextMonthlySyncTime.setMonth(targetMonth + 1, 0); // Last day of target month
+				}
+
+				const monthlyDelayInMinutes = Math.ceil(
+					(nextMonthlySyncTime - now) / (1000 * 60)
+				);
+
 				return {
 					name: "autoSync",
-					delayInMinutes: 30 * 24 * 60, // 30 days
-					periodInMinutes: 30 * 24 * 60,
+					delayInMinutes: monthlyDelayInMinutes,
+					periodInMinutes: 30 * 24 * 60, // Approximate monthly
 				};
 			default:
 				return null;
