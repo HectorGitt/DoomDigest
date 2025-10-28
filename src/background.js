@@ -234,10 +234,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		// Handle clearing auto-sync alarm
 		chrome.alarms.clear("autoSync");
 		return true;
+	} else if (request.type === "SHOW_TOAST_NOTIFICATION") {
+		// Handle toast notification requests
+		showToastNotification(request.title, request.message);
+		return true;
+	} else if (request.type === "SHOW_AI_INSIGHT_NOTIFICATION") {
+		// Handle AI insight notification
+		showAiInsightNotification(request.operation, request.title);
+		return true;
 	}
 });
-
-// Restore auto-sync alarm on startup
 chrome.storage.sync.get(["autoSyncFrequency"], (result) => {
 	const frequency = result.autoSyncFrequency;
 	if (frequency && frequency !== "disabled") {
@@ -300,7 +306,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 				return;
 			}
 
-			// Perform the sync
+			// Perform the sync (handleGoogleDriveSync handles badge setting)
 			const syncResult = await handleGoogleDriveSync(summaries);
 
 			if (syncResult.success) {
@@ -313,6 +319,8 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 			}
 		} catch (error) {
 			console.error("Auto-sync error:", error);
+			// Clear badge on error
+			await setSyncBadge(false);
 		}
 	}
 });
@@ -409,6 +417,9 @@ async function getGeminiApiKey() {
 // Handle Google Drive sync
 async function handleGoogleDriveSync(summaries) {
 	try {
+		// Set badge to indicate sync is running
+		await setSyncBadge(true);
+
 		// Get auth token - use interactive mode to prompt for auth if needed
 		const token = await new Promise((resolve, reject) => {
 			chrome.identity.getAuthToken({ interactive: true }, (token) => {
@@ -423,12 +434,18 @@ async function handleGoogleDriveSync(summaries) {
 		// Sync summaries to Google Drive
 		await syncSummariesToDrive(token, summaries);
 
+		// Clear badge on success
+		await setSyncBadge(false);
+
 		return {
 			success: true,
 			message: "Successfully synced digest to Google Drive!",
 		};
 	} catch (error) {
 		console.error("Google Drive sync failed:", error);
+
+		// Clear badge on error
+		await setSyncBadge(false);
 
 		// Provide more specific error messages
 		let errorMessage = error.message;
@@ -623,3 +640,163 @@ function createMarkdownContent(summaries) {
 
 	return content;
 }
+
+// Notification utility functions
+async function showToastNotification(title, message) {
+	try {
+		// Check if notifications are enabled
+		const settings = await chrome.storage.sync.get([
+			"enableExportNotifications",
+			"enableAiNotifications",
+		]);
+		const exportEnabled = settings.enableExportNotifications !== false;
+		const aiEnabled = settings.enableAiNotifications !== false;
+
+		// For now, show toast notifications for export success and snap captured
+		// AI notifications will be handled separately
+		if (
+			(title.includes("Export") && exportEnabled) ||
+			title.includes("Snapped")
+		) {
+			await chrome.notifications.create({
+				type: "basic",
+				iconUrl: "icon.svg",
+				title: title,
+				message: message,
+				silent: true, // Toast-style notification
+			});
+		}
+	} catch (error) {
+		console.error("Failed to show toast notification:", error);
+	}
+}
+
+async function showExportFailureNotification(format) {
+	try {
+		// Check if notifications are enabled
+		const settings = await chrome.storage.sync.get([
+			"enableExportNotifications",
+		]);
+		if (settings.enableExportNotifications === false) {
+			return; // User disabled export notifications
+		}
+
+		const notificationId = await chrome.notifications.create({
+			type: "basic",
+			iconUrl: "icon.svg",
+			title: "Export Failed",
+			message: `Failed to export digest as ${format.toUpperCase()}. Click to retry.`,
+			requireInteraction: true, // Full notification that stays until dismissed
+			buttons: [{ title: "Retry Export" }],
+		});
+
+		// Store the format for retry
+		exportRetryData = { format, notificationId };
+	} catch (error) {
+		console.error("Failed to show export failure notification:", error);
+	}
+}
+
+// Show AI insight notification
+async function showAiInsightNotification(operation, title) {
+	try {
+		// Check if AI notifications are enabled
+		const settings = await chrome.storage.sync.get([
+			"enableAiNotifications",
+		]);
+		if (settings.enableAiNotifications === false) {
+			return; // User disabled AI notifications
+		}
+
+		let message;
+		switch (operation) {
+			case "summarized":
+				message = `"${title}" has been summarized and added to your digest`;
+				break;
+			case "explained":
+				message = `"${title}" has been explained and added to your digest`;
+				break;
+			case "simplified":
+				message = `"${title}" has been simplified and added to your digest`;
+				break;
+			default:
+				message = `AI operation completed for "${title}"`;
+		}
+
+		await chrome.notifications.create({
+			type: "basic",
+			iconUrl: "icon.svg",
+			title: "AI Insight Ready",
+			message: message,
+			silent: true, // Toast-style notification
+		});
+	} catch (error) {
+		console.error("Failed to show AI insight notification:", error);
+	}
+}
+
+// Set sync badge indicator
+async function setSyncBadge(isSyncing) {
+	try {
+		// Check if sync indicators are enabled
+		const settings = await chrome.storage.sync.get([
+			"enableSyncIndicators",
+		]);
+		if (settings.enableSyncIndicators === false) {
+			// Clear badge if disabled
+			await chrome.action.setBadgeText({ text: "" });
+			return;
+		}
+
+		if (isSyncing) {
+			await chrome.action.setBadgeText({ text: "SYNC" });
+			await chrome.action.setBadgeBackgroundColor({ color: "#2563eb" }); // Blue color
+		} else {
+			await chrome.action.setBadgeText({ text: "" });
+		}
+	} catch (error) {
+		console.error("Failed to set sync badge:", error);
+	}
+}
+
+// Handle notification button clicks
+chrome.notifications.onButtonClicked.addListener(
+	async (notificationId, buttonIndex) => {
+		if (
+			exportRetryData &&
+			exportRetryData.notificationId === notificationId &&
+			buttonIndex === 0
+		) {
+			// Retry export
+			try {
+				// Get current summaries
+				const response = await chrome.runtime.sendMessage({
+					type: "GET_SUMMARIES_FOR_EXPORT",
+				});
+
+				if (
+					response &&
+					response.summaries &&
+					response.summaries.length > 0
+				) {
+					// Send retry request to settings page
+					await chrome.runtime.sendMessage({
+						type: "RETRY_EXPORT",
+						format: exportRetryData.format,
+					});
+				}
+			} catch (error) {
+				console.error("Failed to retry export:", error);
+			}
+
+			// Clear retry data
+			exportRetryData = null;
+
+			// Clear the notification
+			chrome.notifications.clear(notificationId);
+		}
+	}
+);
+
+// Global variable to store export retry data
+let exportRetryData = null;

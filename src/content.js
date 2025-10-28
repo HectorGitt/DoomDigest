@@ -36,6 +36,23 @@ function extractTitle(el) {
 		: firstLine || "Article Summary";
 }
 
+function extractElementLink(el) {
+	// Try to find a link within the element (anchor tag)
+	const link = el.querySelector("a[href]");
+	if (link && link.href) {
+		return link.href;
+	}
+
+	// Try to find any element with a data-url or similar attribute
+	const dataUrl = el.getAttribute("data-url") || el.getAttribute("data-href");
+	if (dataUrl) {
+		return dataUrl;
+	}
+
+	// Fallback to current page URL
+	return location.href;
+}
+
 // Helper function to show error notifications
 async function showErrorNotification(title, message) {
 	try {
@@ -597,6 +614,13 @@ async function handlePageSnap(requestedSummaryType) {
 					timestamp: Date.now(),
 					contentHash: contentHash,
 				});
+
+				// Show success notification for snap captured
+				await chrome.runtime.sendMessage({
+					type: "SHOW_TOAST_NOTIFICATION",
+					title: "Page Snapped",
+					message: `"${title}" has been added to your digest`,
+				});
 			} catch (e) {
 				console.warn("Could not send page snap to sidebar:", e);
 				// Store in local storage as fallback
@@ -719,6 +743,13 @@ async function handleAddSelectedTextSummarized(selectedText, url, pageTitle) {
 					isSelectedText: true,
 					originalText: selectedText, // Keep original text for reference
 				});
+
+				// Show AI insight notification
+				await chrome.runtime.sendMessage({
+					type: "SHOW_AI_INSIGHT_NOTIFICATION",
+					operation: "summarized",
+					title: title,
+				});
 			} catch (e) {
 				console.warn("Could not send summary to sidebar:", e);
 				// Store in local storage as fallback
@@ -798,6 +829,13 @@ async function handleExplainSelectedText(selectedText, url, pageTitle) {
 					isSelectedText: true,
 					originalText: selectedText, // Keep original text for reference
 					mode: "explain",
+				});
+
+				// Show AI insight notification
+				await chrome.runtime.sendMessage({
+					type: "SHOW_AI_INSIGHT_NOTIFICATION",
+					operation: "explained",
+					title: title,
 				});
 			} catch (e) {
 				console.warn("Could not send explanation to sidebar:", e);
@@ -882,6 +920,13 @@ async function handleSimplifySelectedText(selectedText, url, pageTitle) {
 					isSelectedText: true,
 					originalText: selectedText, // Keep original text for reference
 					mode: "simplify",
+				});
+
+				// Show AI insight notification
+				await chrome.runtime.sendMessage({
+					type: "SHOW_AI_INSIGHT_NOTIFICATION",
+					operation: "simplified",
+					title: title,
 				});
 			} catch (e) {
 				console.warn("Could not send simplified text to sidebar:", e);

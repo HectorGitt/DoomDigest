@@ -40,6 +40,17 @@ document.addEventListener("DOMContentLoaded", function () {
 	const removeGoogleDriveBtn = document.getElementById("remove-google-drive");
 	const googleDriveStatus = document.getElementById("google-drive-status");
 
+	// Notification settings
+	const enableAiNotifications = document.getElementById(
+		"enable-ai-notifications"
+	);
+	const enableExportNotifications = document.getElementById(
+		"enable-export-notifications"
+	);
+	const enableSyncIndicators = document.getElementById(
+		"enable-sync-indicators"
+	);
+
 	// Load saved settings
 	loadSettings();
 
@@ -71,6 +82,11 @@ document.addEventListener("DOMContentLoaded", function () {
 		saveSettings();
 		updateAutoSyncSchedule(this.value);
 	});
+
+	// Notification settings
+	enableAiNotifications.addEventListener("change", saveSettings);
+	enableExportNotifications.addEventListener("change", saveSettings);
+	enableSyncIndicators.addEventListener("change", saveSettings);
 
 	// Clear Gemini tested status when API key changes
 	geminiApiKey.addEventListener("input", () => {
@@ -122,6 +138,9 @@ document.addEventListener("DOMContentLoaded", function () {
 				"geminiApiTested",
 				"googleDriveConnected",
 				"autoSyncFrequency",
+				"enableAiNotifications",
+				"enableExportNotifications",
+				"enableSyncIndicators",
 			],
 			function (result) {
 				apiProviderSelect.value = result.apiProvider || "chrome-ai";
@@ -136,6 +155,14 @@ document.addEventListener("DOMContentLoaded", function () {
 				// Auto-sync frequency
 				autoSyncFrequency.value =
 					result.autoSyncFrequency || "disabled";
+
+				// Notification settings
+				enableAiNotifications.checked =
+					result.enableAiNotifications !== false;
+				enableExportNotifications.checked =
+					result.enableExportNotifications !== false;
+				enableSyncIndicators.checked =
+					result.enableSyncIndicators !== false;
 
 				// If Gemini API has been tested successfully, prioritize it
 				if (result.geminiApiTested && result.geminiApiKey) {
@@ -165,6 +192,9 @@ document.addEventListener("DOMContentLoaded", function () {
 			smartTopics: smartTopics.checked,
 			showAdvancedAiStatus: showAdvancedAiStatus.checked,
 			autoSyncFrequency: autoSyncFrequency.value,
+			enableAiNotifications: enableAiNotifications.checked,
+			enableExportNotifications: enableExportNotifications.checked,
+			enableSyncIndicators: enableSyncIndicators.checked,
 		};
 
 		chrome.storage.sync.set(settings);
@@ -462,9 +492,22 @@ document.addEventListener("DOMContentLoaded", function () {
 			});
 
 			URL.revokeObjectURL(url);
+
+			// Show success notification for export
+			await chrome.runtime.sendMessage({
+				type: "SHOW_TOAST_NOTIFICATION",
+				title: "Export Complete",
+				message: `Digest exported as ${format.toUpperCase()} file`,
+			});
 		} catch (e) {
 			console.error("Export failed:", e);
 			alert("Export failed: " + e.message);
+
+			// Show failure notification with retry option
+			await chrome.runtime.sendMessage({
+				type: "SHOW_EXPORT_FAILURE_NOTIFICATION",
+				format: format,
+			});
 		}
 	}
 
@@ -547,6 +590,13 @@ document.addEventListener("DOMContentLoaded", function () {
 		});
 
 		URL.revokeObjectURL(url);
+
+		// Show success notification for PDF export
+		await chrome.runtime.sendMessage({
+			type: "SHOW_TOAST_NOTIFICATION",
+			title: "Export Complete",
+			message: "Digest exported as HTML file",
+		});
 	}
 
 	async function connectGoogleDrive() {
@@ -713,4 +763,13 @@ document.addEventListener("DOMContentLoaded", function () {
 				return null;
 		}
 	}
+
+	// Handle messages from background script
+	chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+		if (message.type === "RETRY_EXPORT") {
+			// Retry the export with the specified format
+			exportDigest(message.format);
+			return true;
+		}
+	});
 });
