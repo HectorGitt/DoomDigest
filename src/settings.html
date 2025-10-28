@@ -77,6 +77,22 @@
 				</div>
 			</div>
 
+			<div class="setting-group" id="prompt-api-status">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label>Prompt API Status</label>
+						<p class="description">
+							Built-in Chrome AI language model status
+						</p>
+					</div>
+					<div class="setting-control">
+						<span id="prompt-api-indicator" class="status-indicator"
+							>Checking...</span
+						>
+					</div>
+				</div>
+			</div>
+
 			<div class="setting-group" id="show-advanced-status">
 				<div class="setting-item">
 					<div class="setting-info">
@@ -357,9 +373,15 @@
 						<span class="material-icons small">data_object</span>
 						Export as JSON
 					</button>
-					<button id="export-pdf" class="secondary">
-						<span class="material-icons small">picture_as_pdf</span>
-						Export as PDF
+					<button id="export-analytics">
+						<span class="material-icons small">analytics</span>
+						Generate Analytics
+					</button>
+				</div>
+				<div style="margin-top: 15px; text-align: center">
+					<button id="open-analytics-page" class="secondary">
+						<span class="material-icons small">bar_chart</span>
+						Advanced Analytics Dashboard
 					</button>
 				</div>
 			</div>

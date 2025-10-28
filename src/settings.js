@@ -8,6 +8,7 @@ document.addEventListener("DOMContentLoaded", function () {
 	const rewriterApiIndicator = document.getElementById(
 		"rewriter-api-indicator"
 	);
+	const promptApiIndicator = document.getElementById("prompt-api-indicator");
 	const geminiSettings = document.getElementById("gemini-settings");
 	const geminiApiKey = document.getElementById("gemini-api-key");
 	const testGeminiBtn = document.getElementById("test-gemini");
@@ -27,7 +28,7 @@ document.addEventListener("DOMContentLoaded", function () {
 	const exportTxtBtn = document.getElementById("export-txt");
 	const exportMdBtn = document.getElementById("export-md");
 	const exportJsonBtn = document.getElementById("export-json");
-	const exportPdfBtn = document.getElementById("export-pdf");
+	const exportAnalyticsBtn = document.getElementById("export-analytics");
 
 	// Remove key button
 	const removeGeminiKeyBtn = document.getElementById("remove-gemini-key");
@@ -114,7 +115,13 @@ document.addEventListener("DOMContentLoaded", function () {
 	exportTxtBtn.addEventListener("click", () => exportDigest("txt"));
 	exportMdBtn.addEventListener("click", () => exportDigest("md"));
 	exportJsonBtn.addEventListener("click", () => exportDigest("json"));
-	exportPdfBtn.addEventListener("click", () => exportDigest("pdf"));
+	exportAnalyticsBtn.addEventListener("click", () => exportAnalytics());
+
+	// Analytics page button
+	const openAnalyticsPageBtn = document.getElementById("open-analytics-page");
+	openAnalyticsPageBtn.addEventListener("click", () => {
+		chrome.tabs.create({ url: chrome.runtime.getURL("analytics.html") });
+	});
 
 	// Remove key button
 	removeGeminiKeyBtn.addEventListener("click", removeGeminiKey);
@@ -138,6 +145,7 @@ document.addEventListener("DOMContentLoaded", function () {
 		// Check Chrome AI status
 		const chromeAIStatus = await checkAPIStatus("summarizer");
 		const rewriterAIStatus = await checkAPIStatus("rewriter");
+		const promptAIStatus = await checkAPIStatus("prompt");
 
 		// Update indicators
 		updateStatusIndicator(
@@ -146,6 +154,7 @@ document.addEventListener("DOMContentLoaded", function () {
 			downloadChromeAiBtn
 		);
 		updateStatusIndicator(rewriterApiIndicator, rewriterAIStatus);
+		updateStatusIndicator(promptApiIndicator, promptAIStatus);
 	}
 
 	function loadSettings() {
@@ -255,6 +264,8 @@ document.addEventListener("DOMContentLoaded", function () {
 				apiConstructor = Summarizer;
 			} else if (apiType === "rewriter") {
 				apiConstructor = Rewriter;
+			} else if (apiType === "prompt") {
+				apiConstructor = LanguageModel;
 			} else {
 				return "unavailable";
 			}
@@ -628,6 +639,119 @@ document.addEventListener("DOMContentLoaded", function () {
 			title: "Export Complete",
 			message: "Digest exported as HTML file",
 		});
+	}
+
+	async function exportAnalytics() {
+		try {
+			const response = await chrome.runtime.sendMessage({
+				type: "GET_SUMMARIES_FOR_EXPORT",
+			});
+
+			if (
+				!response ||
+				!response.summaries ||
+				response.summaries.length === 0
+			) {
+				alert("No summaries to analyze");
+				return;
+			}
+			console.log("jdjdjj", response.summaries);
+
+			// Show loading message
+			const statusElement = document.createElement("div");
+			statusElement.id = "analytics-status";
+			statusElement.textContent = "Generating analytics...";
+			statusElement.style.cssText = `
+				margin-top: 10px;
+				padding: 10px;
+				background: #f0f9ff;
+				border: 1px solid #0ea5e9;
+				border-radius: 4px;
+				color: #0c4a6e;
+			`;
+
+			// Find the export section and add status
+			const exportSection = document.querySelector(".export-section");
+			exportSection.appendChild(statusElement);
+
+			// Generate analytics using background script
+			const analyticsResponse = await chrome.runtime.sendMessage({
+				type: "GENERATE_ANALYTICS",
+				summaries: response.summaries,
+			});
+
+			if (analyticsResponse.success) {
+				// Display analytics results
+				statusElement.innerHTML = `
+					<div style="margin-bottom: 10px; font-weight: bold; color: #059669;">
+						Analytics Generated Successfully
+					</div>
+					<div style="
+						background: white;
+						border: 1px solid #d1d5db;
+						border-radius: 4px;
+						padding: 15px;
+						margin-bottom: 10px;
+						white-space: pre-wrap;
+						font-family: monospace;
+						font-size: 14px;
+						line-height: 1.4;
+						max-height: 400px;
+						overflow-y: auto;
+					">${analyticsResponse.analytics.replace(/\n/g, "<br>")}</div>
+					<button id="copy-analytics" style="
+						background: #3b82f6;
+						color: white;
+						border: none;
+						padding: 8px 16px;
+						border-radius: 4px;
+						cursor: pointer;
+						font-size: 14px;
+					">Copy to Clipboard</button>
+				`;
+
+				// Add copy functionality
+				document
+					.getElementById("copy-analytics")
+					.addEventListener("click", () => {
+						navigator.clipboard.writeText(
+							analyticsResponse.analytics
+						);
+						// Show brief success message
+						const copyBtn =
+							document.getElementById("copy-analytics");
+						const originalText = copyBtn.textContent;
+						copyBtn.textContent = "Copied!";
+						copyBtn.style.background = "#059669";
+						setTimeout(() => {
+							copyBtn.textContent = originalText;
+							copyBtn.style.background = "#3b82f6";
+						}, 2000);
+					});
+			} else {
+				statusElement.innerHTML = `
+					<div style="color: #dc2626; font-weight: bold;">
+						Analytics Generation Failed
+					</div>
+					<div style="color: #7f1d1d; margin-top: 5px;">
+						${analyticsResponse.error}
+					</div>
+				`;
+			}
+		} catch (error) {
+			console.error("Analytics export error:", error);
+			const statusElement = document.getElementById("analytics-status");
+			if (statusElement) {
+				statusElement.innerHTML = `
+					<div style="color: #dc2626; font-weight: bold;">
+						Analytics Generation Failed
+					</div>
+					<div style="color: #7f1d1d; margin-top: 5px;">
+						${error.message}
+					</div>
+				`;
+			}
+		}
 	}
 
 	async function connectGoogleDrive() {

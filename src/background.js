@@ -242,6 +242,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		// Handle AI insight notification
 		showAiInsightNotification(request.operation, request.title);
 		return true;
+	} else if (request.type === "GENERATE_ANALYTICS") {
+		// Handle analytics generation request from settings page
+		handleGenerateAnalytics(request.summaries)
+			.then((analytics) => {
+				sendResponse({ success: true, analytics: analytics });
+			})
+			.catch((error) => {
+				console.error("Analytics generation error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "GENERATE_CUSTOM_ANALYTICS") {
+		// Handle custom analytics generation request from analytics page
+		handleGenerateCustomAnalytics(request.summaries, request.customization)
+			.then((analytics) => {
+				sendResponse({ success: true, analytics: analytics });
+			})
+			.catch((error) => {
+				console.error("Custom analytics generation error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
 	}
 });
 chrome.storage.sync.get(["autoSyncFrequency"], (result) => {
@@ -411,6 +433,180 @@ async function getGeminiApiKey() {
 	} catch (error) {
 		console.error("Error getting Gemini API key:", error);
 		return null;
+	}
+}
+
+// Handle custom analytics generation
+async function handleGenerateCustomAnalytics(summaries, customization) {
+	try {
+		// Get API provider settings
+		const settings = await chrome.storage.sync.get([
+			"apiProvider",
+			"geminiApiKey",
+			"geminiApiTested",
+		]);
+
+		const provider = settings.apiProvider || "chrome-ai";
+
+		// Try Chrome AI Prompt API first if Chrome AI is selected
+		if (provider === "chrome-ai") {
+			try {
+				if ("LanguageModel" in self) {
+					const session = await LanguageModel.create({
+						monitor(m) {
+							m.addEventListener("downloadprogress", (e) => {
+								console.log(`Downloaded ${e.loaded * 100}%`);
+							});
+						},
+					});
+
+					const promptText = createCustomAnalyticsPrompt(
+						summaries,
+						customization
+					);
+					const result = await session.prompt(promptText);
+
+					return result;
+				}
+			} catch (error) {
+				console.warn(
+					"Chrome AI Prompt API failed, falling back to Gemini:",
+					error
+				);
+			}
+		}
+
+		// Fallback to Gemini if available
+		if (settings.geminiApiTested && settings.geminiApiKey) {
+			return await generateCustomAnalyticsWithGemini(
+				summaries,
+				customization
+			);
+		}
+
+		if (provider === "gemini" && settings.geminiApiKey) {
+			return await generateCustomAnalyticsWithGemini(
+				summaries,
+				customization
+			);
+		}
+
+		// If no API is available, return error message
+		throw new Error(
+			"Analytics generation requires Chrome AI or Gemini API configuration."
+		);
+	} catch (error) {
+		console.error("Error in handleGenerateCustomAnalytics:", error);
+		throw error;
+	}
+}
+
+// Create custom analytics prompt from summaries and customization options
+function createCustomAnalyticsPrompt(summaries, customization) {
+	const summariesText = summaries
+		.map((s, i) => `${i + 1}. ${s.title}: ${s.summary}`)
+		.join("\n\n");
+
+	// Build focus areas text with DoomDigest-specific context
+	const focusAreasText =
+		customization.focusAreas.length > 0
+			? `Focus on these areas: ${customization.focusAreas.join(", ")}`
+			: "";
+
+	// Build depth instruction with productivity context
+	let depthInstruction = "";
+	switch (customization.depth) {
+		case "brief":
+			depthInstruction =
+				"Provide a brief productivity overview with 2-3 key insights about your content consumption habits";
+			break;
+		case "standard":
+			depthInstruction =
+				"Provide a comprehensive analysis of your reading patterns and productivity insights";
+			break;
+		case "detailed":
+			depthInstruction =
+				"Provide an in-depth analysis with extensive details about content consumption, learning patterns, and productivity recommendations";
+			break;
+		case "comprehensive":
+			depthInstruction =
+				"Provide a complete productivity report covering all aspects of your content consumption journey";
+			break;
+		default:
+			depthInstruction =
+				"Provide a comprehensive analysis of your reading patterns and productivity insights";
+	}
+
+	// Build format instruction
+	let formatInstruction = "";
+	switch (customization.format) {
+		case "structured":
+			formatInstruction =
+				"Use clear headings, bullet points, and numbered lists for easy reading and actionable insights";
+			break;
+		case "narrative":
+			formatInstruction =
+				"Present as a flowing narrative that tells the story of your content consumption journey";
+			break;
+		case "bullet-points":
+			formatInstruction =
+				"Use bullet points and short paragraphs throughout for quick scanning and productivity tips";
+			break;
+		case "executive":
+			formatInstruction =
+				"Present as an executive summary with key metrics, insights, and actionable recommendations for productivity improvement";
+			break;
+		default:
+			formatInstruction =
+				"Use clear headings, bullet points, and numbered lists for easy reading and actionable insights";
+	}
+
+	// Build custom instructions
+	const customInstructions = customization.customInstructions
+		? `\n\nAdditional Instructions: ${customization.customInstructions}`
+		: "";
+
+	return `You are analyzing article summaries from DoomDigest, a tool designed to help users consume content more productively and efficiently. Your goal is to provide actionable insights that help users improve their reading habits, knowledge acquisition, and productivity.
+
+${depthInstruction}. ${focusAreasText}
+
+${formatInstruction}.
+
+As a productivity-focused analytics tool, focus on:
+- How users can optimize their content consumption
+- Patterns in reading habits that indicate productivity levels
+- Quality assessment of content sources and topics
+- Recommendations for better content discovery and curation
+- Insights about knowledge gaps and learning opportunities
+- Time management and efficiency suggestions
+- Personal growth and development through better content consumption
+
+Article Summaries from DoomDigest:
+${summariesText}${customInstructions}
+
+Please provide your productivity-focused analysis:`;
+}
+
+// Generate custom analytics using Gemini API
+async function generateCustomAnalyticsWithGemini(summaries, customization) {
+	try {
+		const apiKey = await getGeminiApiKey();
+		if (!apiKey) {
+			throw new Error("Gemini API key not configured");
+		}
+
+		const genAI = new GoogleGenerativeAI(apiKey);
+		const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+		const prompt = createCustomAnalyticsPrompt(summaries, customization);
+		const result = await model.generateContent(prompt);
+		const response = await result.response;
+		const analytics = response.text().trim();
+
+		return analytics;
+	} catch (error) {
+		console.error("Gemini custom analytics failed:", error);
+		throw new Error(`Gemini analytics failed: ${error.message}`);
 	}
 }
 
