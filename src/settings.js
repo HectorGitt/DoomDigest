@@ -5,6 +5,9 @@ document.addEventListener("DOMContentLoaded", function () {
 	// DOM elements
 	const apiProviderSelect = document.getElementById("api-provider");
 	const chromeAiIndicator = document.getElementById("chrome-ai-indicator");
+	const rewriterApiIndicator = document.getElementById(
+		"rewriter-api-indicator"
+	);
 	const geminiSettings = document.getElementById("gemini-settings");
 	const geminiApiKey = document.getElementById("gemini-api-key");
 	const testGeminiBtn = document.getElementById("test-gemini");
@@ -96,13 +99,15 @@ document.addEventListener("DOMContentLoaded", function () {
 	async function checkAllAPIStatuses() {
 		// Check Chrome AI status
 		const chromeAIStatus = await checkAPIStatus("summarizer");
+		const rewriterAIStatus = await checkAPIStatus("rewriter");
 
-		// Update indicator
+		// Update indicators
 		updateStatusIndicator(
 			chromeAiIndicator,
 			chromeAIStatus,
 			downloadChromeAiBtn
 		);
+		updateStatusIndicator(rewriterApiIndicator, rewriterAIStatus);
 	}
 
 	function loadSettings() {
@@ -184,42 +189,63 @@ document.addEventListener("DOMContentLoaded", function () {
 	// API status checker
 	async function checkAPIStatus(apiType) {
 		try {
+			let apiConstructor;
 			if (apiType === "summarizer") {
-				// Try modern surface first, then fallback to global Summarizer
-				if ("Summarizer" in self) {
-					const availability = await self.Summarizer.availability();
-					switch (availability) {
-						case "available":
-							return "readily";
-						case "downloading":
-							return "downloading";
-						case "downloadable":
-							return "after-download";
-						default:
-							return "no";
-					}
-				} else if (
-					typeof Summarizer !== "undefined" &&
-					typeof Summarizer.availability === "function"
-				) {
-					const availability = await Summarizer.availability();
-					switch (availability) {
-						case "available":
-							return "readily";
-						case "downloading":
-							return "downloading";
-						case "downloadable":
-							return "after-download";
-						default:
-							return "no";
-					}
-				} else {
-					return "unavailable";
-				}
+				apiConstructor = Summarizer;
+			} else if (apiType === "rewriter") {
+				apiConstructor = Rewriter;
+			} else {
+				return "unavailable";
 			}
-			return "unavailable";
+
+			return await checkChromeAIAvailability(apiConstructor);
 		} catch (e) {
 			console.error(`${apiType} API check failed:`, e);
+			return "error";
+		}
+	}
+
+	// Shared Chrome AI availability checker
+	async function checkChromeAIAvailability(apiConstructor) {
+		try {
+			// Try modern surface first, then fallback to global
+			if (apiConstructor.name in self) {
+				const availability = await self[
+					apiConstructor.name
+				].availability();
+				switch (availability) {
+					case "available":
+						return "readily";
+					case "downloading":
+						return "downloading";
+					case "downloadable":
+						return "after-download";
+					default:
+						return "no";
+				}
+			} else if (
+				typeof apiConstructor !== "undefined" &&
+				typeof apiConstructor.availability === "function"
+			) {
+				const availability = await apiConstructor.availability();
+				switch (availability) {
+					case "available":
+						return "readily";
+					case "downloading":
+						return "downloading";
+					case "downloadable":
+						return "after-download";
+					default:
+						return "no";
+				}
+			} else {
+				return "unavailable";
+			}
+		} catch (e) {
+			console.error(
+				`${apiConstructor.name} availability check failed:`,
+				e
+			);
 			return "error";
 		}
 	}
