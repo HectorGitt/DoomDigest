@@ -30,45 +30,99 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // Handle context menu clicks
-chrome.contextMenus.onClicked.addListener((info, tab) => {
-	if (info.menuItemId === "snap-page") {
-		// Snap the entire page
-		chrome.tabs.sendMessage(tab.id, {
-			type: "SNAP_PAGE_SUMMARY",
-			summaryType: "key-points", // Default to key-points for page snap
-		});
-	} else if (info.menuItemId === "add-to-digest") {
-		// Add selected text to digest without summarization
-		const selectedText = info.selectionText;
-		if (selectedText && selectedText.trim().length > 0) {
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+	try {
+		// Open the sidebar first to ensure it's ready to receive messages
+		await chrome.sidePanel.open({ tabId: tab.id });
+
+		// Small delay to ensure sidebar is fully loaded
+		await new Promise((resolve) => setTimeout(resolve, 100));
+
+		if (info.menuItemId === "snap-page") {
+			// Snap the entire page
 			chrome.tabs.sendMessage(tab.id, {
-				type: "ADD_SELECTED_TEXT_RAW",
-				selectedText: selectedText.trim(),
-				url: tab.url,
-				title: tab.title,
+				type: "SNAP_PAGE_SUMMARY",
+				summaryType: "key-points", // Default to key-points for page snap
 			});
+		} else if (info.menuItemId === "add-to-digest") {
+			// Add selected text to digest without summarization
+			const selectedText = info.selectionText;
+			if (selectedText && selectedText.trim().length > 0) {
+				chrome.tabs.sendMessage(tab.id, {
+					type: "ADD_SELECTED_TEXT_RAW",
+					selectedText: selectedText.trim(),
+					url: tab.url,
+					title: tab.title,
+				});
+			}
+		} else if (info.menuItemId === "summarize-selection") {
+			// Summarize selected text before adding to digest
+			const selectedText = info.selectionText;
+			if (selectedText && selectedText.trim().length > 0) {
+				chrome.tabs.sendMessage(tab.id, {
+					type: "ADD_SELECTED_TEXT_SUMMARIZED",
+					selectedText: selectedText.trim(),
+					url: tab.url,
+					title: tab.title,
+				});
+			}
+		} else if (info.menuItemId === "simplify-selection") {
+			// Simplify selected text
+			const selectedText = info.selectionText;
+			if (selectedText && selectedText.trim().length > 0) {
+				chrome.tabs.sendMessage(tab.id, {
+					type: "SIMPLIFY_SELECTED_TEXT",
+					selectedText: selectedText.trim(),
+					url: tab.url,
+					title: tab.title,
+				});
+			}
 		}
-	} else if (info.menuItemId === "summarize-selection") {
-		// Summarize selected text before adding to digest
-		const selectedText = info.selectionText;
-		if (selectedText && selectedText.trim().length > 0) {
-			chrome.tabs.sendMessage(tab.id, {
-				type: "ADD_SELECTED_TEXT_SUMMARIZED",
-				selectedText: selectedText.trim(),
-				url: tab.url,
-				title: tab.title,
-			});
-		}
-	} else if (info.menuItemId === "simplify-selection") {
-		// Simplify selected text
-		const selectedText = info.selectionText;
-		if (selectedText && selectedText.trim().length > 0) {
-			chrome.tabs.sendMessage(tab.id, {
-				type: "SIMPLIFY_SELECTED_TEXT",
-				selectedText: selectedText.trim(),
-				url: tab.url,
-				title: tab.title,
-			});
+	} catch (error) {
+		console.error("Error handling context menu click:", error);
+		// Fallback: try to send message anyway in case sidebar was already open
+		try {
+			if (info.menuItemId === "snap-page") {
+				chrome.tabs.sendMessage(tab.id, {
+					type: "SNAP_PAGE_SUMMARY",
+					summaryType: "key-points",
+				});
+			} else if (info.menuItemId === "add-to-digest") {
+				const selectedText = info.selectionText;
+				if (selectedText && selectedText.trim().length > 0) {
+					chrome.tabs.sendMessage(tab.id, {
+						type: "ADD_SELECTED_TEXT_RAW",
+						selectedText: selectedText.trim(),
+						url: tab.url,
+						title: tab.title,
+					});
+				}
+			} else if (info.menuItemId === "summarize-selection") {
+				const selectedText = info.selectionText;
+				if (selectedText && selectedText.trim().length > 0) {
+					chrome.tabs.sendMessage(tab.id, {
+						type: "ADD_SELECTED_TEXT_SUMMARIZED",
+						selectedText: selectedText.trim(),
+						url: tab.url,
+						title: tab.title,
+					});
+				}
+			} else if (info.menuItemId === "simplify-selection") {
+				const selectedText = info.selectionText;
+				if (selectedText && selectedText.trim().length > 0) {
+					chrome.tabs.sendMessage(tab.id, {
+						type: "SIMPLIFY_SELECTED_TEXT",
+						selectedText: selectedText.trim(),
+						url: tab.url,
+						title: tab.title,
+					});
+				}
+			}
+		} catch (fallbackError) {
+			console.error(
+				"Fallback context menu handling also failed:",
+				fallbackError
+			);
 		}
 	}
 });

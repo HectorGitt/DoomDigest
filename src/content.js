@@ -36,46 +36,39 @@ function extractTitle(el) {
 		: firstLine || "Article Summary";
 }
 
-// Helper function to extract link from element (for social media posts, etc.)
-function extractElementLink(el) {
-	// First, check if the element itself is a link
-	if (el.tagName === "A" && el.href) {
-		return el.href;
+// Helper function to show error notifications
+async function showErrorNotification(title, message) {
+	try {
+		await chrome.notifications.create({
+			type: "basic",
+			iconUrl: chrome.runtime.getURL("icon.svg"),
+			title: title,
+			message: message,
+		});
+	} catch (e) {
+		console.error("Failed to show notification:", e);
+		// Fallback to console warning if notifications fail
+		console.warn(`${title}: ${message}`);
 	}
+}
 
-	// Look for links within the element (social media post links, etc.)
-	const links = el.querySelectorAll("a[href]");
-	for (const link of links) {
-		// Prefer links that seem to be the main post/content link
-		// Skip navigation, footer, or other non-content links
-		const href = link.href;
-		if (
-			href &&
-			!href.includes("#") &&
-			!link.closest("nav, footer, header")
-		) {
-			// For social media, look for post URLs (contain post IDs, etc.)
-			if (
-				href.includes("/status/") ||
-				href.includes("/posts/") ||
-				href.includes("/p/") ||
-				href.includes("/tweet/")
-			) {
-				return href;
-			}
-			// Return the first reasonable link found
-			return href;
-		}
+// Helper function to store summary locally when sidebar is not available
+async function storeSummaryLocally(summaryData) {
+	try {
+		// Get existing summaries from storage
+		const result = await chrome.storage.sync.get(["summaries"]);
+		const summaries = result.summaries || [];
+
+		// Add the new summary
+		summaries.push(summaryData);
+
+		// Save back to storage
+		await chrome.storage.sync.set({ summaries: summaries });
+
+		console.log("Summary stored locally due to sidebar unavailability");
+	} catch (e) {
+		console.error("Failed to store summary locally:", e);
 	}
-
-	// Check closest ancestor link
-	const ancestorLink = el.closest("a[href]");
-	if (ancestorLink && ancestorLink.href) {
-		return ancestorLink.href;
-	}
-
-	// Fallback to page URL
-	return location.href;
 }
 
 // Find containers with repeating sibling blocks (like social media feeds)
@@ -570,12 +563,17 @@ async function handlePageSnap(requestedSummaryType) {
 		summaryType = requestedSummaryType;
 
 		// Notify sidebar that summarization is starting
-		await chrome.runtime.sendMessage({
-			type: "SUMMARIZING_START",
-			url: location.href,
-			title: `Snapping ${title}...`,
-			contentHash: contentHash,
-		});
+		try {
+			await chrome.runtime.sendMessage({
+				type: "SUMMARIZING_START",
+				url: location.href,
+				title: `Snapping ${title}...`,
+				contentHash: contentHash,
+			});
+		} catch (e) {
+			// Sidebar might not be open, continue anyway
+			console.warn("Could not notify sidebar of page snap start:", e);
+		}
 
 		// Summarize the content
 		const text = normalizedText.slice(0, 2000); // Limit for API
@@ -589,15 +587,28 @@ async function handlePageSnap(requestedSummaryType) {
 			processedContentHashes.add(contentHash);
 
 			// Send to sidebar
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary,
-				url: location.href,
-				title: title,
-				elementLink: elementLink,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-			});
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					summary,
+					url: location.href,
+					title: title,
+					elementLink: elementLink,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+				});
+			} catch (e) {
+				console.warn("Could not send page snap to sidebar:", e);
+				// Store in local storage as fallback
+				storeSummaryLocally({
+					summary,
+					url: location.href,
+					title: title,
+					elementLink: elementLink,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+				});
+			}
 		}
 	} catch (e) {
 		console.error("Error in handlePageSnap:", e);
@@ -626,17 +637,32 @@ async function handleAddSelectedTextRaw(selectedText, url, pageTitle) {
 				: selectedText;
 
 		// Send to sidebar as direct text addition (no summarization)
-		await chrome.runtime.sendMessage({
-			type: "NEW_SUMMARY",
-			summary: selectedText, // Use the selected text directly
-			url: url,
-			title: `Selected Text: ${title}`,
-			elementLink: url,
-			timestamp: Date.now(),
-			contentHash: contentHash,
-			isSelectedText: true,
-			isRawText: true, // Flag to indicate this is raw text
-		});
+		try {
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				summary: selectedText, // Use the selected text directly
+				url: url,
+				title: `Selected Text: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				isRawText: true, // Flag to indicate this is raw text
+			});
+		} catch (e) {
+			console.warn("Could not send raw text to sidebar:", e);
+			// Store in local storage as fallback
+			storeSummaryLocally({
+				summary: selectedText,
+				url: url,
+				title: `Selected Text: ${title}`,
+				elementLink: url,
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				isRawText: true,
+			});
+		}
 	} catch (e) {
 		console.error("Error in handleAddSelectedTextRaw:", e);
 	}
@@ -664,41 +690,55 @@ async function handleAddSelectedTextSummarized(selectedText, url, pageTitle) {
 				: selectedText;
 
 		// Notify sidebar that summarization is starting
-		await chrome.runtime.sendMessage({
-			type: "SUMMARIZING_START",
-			url: url,
-			title: `Summarizing selected text...`,
-			contentHash: contentHash,
-		});
+		try {
+			await chrome.runtime.sendMessage({
+				type: "SUMMARIZING_START",
+				url: url,
+				title: `Summarizing selected text...`,
+				contentHash: contentHash,
+			});
+		} catch (e) {
+			// Sidebar might not be open, continue anyway
+			console.warn("Could not notify sidebar of summarization start:", e);
+		}
 
 		// Summarize the selected text
 		const summary = await summarizeText(selectedText.slice(0, 2000)); // Limit for API
 
 		if (summary) {
 			// Send to sidebar with summarized text
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: summary,
-				url: url,
-				title: `Selected Text: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-				originalText: selectedText, // Keep original text for reference
-			});
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					summary: summary,
+					url: url,
+					title: `Selected Text: ${title}`,
+					elementLink: url,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+					isSelectedText: true,
+					originalText: selectedText, // Keep original text for reference
+				});
+			} catch (e) {
+				console.warn("Could not send summary to sidebar:", e);
+				// Store in local storage as fallback
+				storeSummaryLocally({
+					summary: summary,
+					url: url,
+					title: `Selected Text: ${title}`,
+					elementLink: url,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+					isSelectedText: true,
+					originalText: selectedText,
+				});
+			}
 		} else {
-			// If summarization fails, add the original text
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: selectedText,
-				url: url,
-				title: `Selected Text: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-			});
+			// Show error notification instead of adding to digest
+			await showErrorNotification(
+				"Summarization Failed",
+				"Could not summarize the selected text. Please check your AI settings and try again."
+			);
 		}
 	} catch (e) {
 		console.error("Error in handleAddSelectedTextSummarized:", e);
@@ -729,42 +769,57 @@ async function handleExplainSelectedText(selectedText, url, pageTitle) {
 				: selectedText;
 
 		// Notify sidebar that explanation is starting
-		await chrome.runtime.sendMessage({
-			type: "SUMMARIZING_START",
-			url: url,
-			title: `Explaining selected text...`,
-			contentHash: contentHash,
-		});
+		try {
+			await chrome.runtime.sendMessage({
+				type: "SUMMARIZING_START",
+				url: url,
+				title: `Explaining selected text...`,
+				contentHash: contentHash,
+			});
+		} catch (e) {
+			// Sidebar might not be open, continue anyway
+			console.warn("Could not notify sidebar of explanation start:", e);
+		}
 
 		// Explain the selected text by sending to background script
 		const explanation = await explainText(selectedText.slice(0, 2000)); // Limit for API
 
 		if (explanation) {
 			// Send to sidebar with explanation
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: explanation,
-				url: url,
-				title: `Explanation: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-				originalText: selectedText, // Keep original text for reference
-				mode: "explain",
-			});
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					summary: explanation,
+					url: url,
+					title: `Explanation: ${title}`,
+					elementLink: url,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+					isSelectedText: true,
+					originalText: selectedText, // Keep original text for reference
+					mode: "explain",
+				});
+			} catch (e) {
+				console.warn("Could not send explanation to sidebar:", e);
+				// Store in local storage as fallback
+				storeSummaryLocally({
+					summary: explanation,
+					url: url,
+					title: `Explanation: ${title}`,
+					elementLink: url,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+					isSelectedText: true,
+					originalText: selectedText,
+					mode: "explain",
+				});
+			}
 		} else {
-			// If explanation fails, add the original text with a note
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: `Could not generate explanation. Original text: ${selectedText}`,
-				url: url,
-				title: `Explanation: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-			});
+			// Show error notification instead of adding to digest
+			await showErrorNotification(
+				"Text Explanation Failed",
+				"Could not generate an explanation for the selected text. Please check your AI settings and try again."
+			);
 		}
 	} catch (e) {
 		console.error("Error in handleExplainSelectedText:", e);
@@ -795,42 +850,60 @@ async function handleSimplifySelectedText(selectedText, url, pageTitle) {
 				: selectedText;
 
 		// Notify sidebar that simplifying is starting
-		await chrome.runtime.sendMessage({
-			type: "SUMMARIZING_START",
-			url: url,
-			title: `Simplifying selected text...`,
-			contentHash: contentHash,
-		});
+		try {
+			await chrome.runtime.sendMessage({
+				type: "SUMMARIZING_START",
+				url: url,
+				title: `Simplifying selected text...`,
+				contentHash: contentHash,
+			});
+		} catch (e) {
+			// Sidebar might not be open, continue anyway
+			console.warn(
+				"Could not notify sidebar of simplification start:",
+				e
+			);
+		}
 
 		// Simplify the selected text by sending to background script
 		const simplified = await simplifyText(selectedText.slice(0, 2000)); // Limit for API
 
 		if (simplified) {
 			// Send to sidebar with simplified text
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: simplified,
-				url: url,
-				title: `Simplified: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-				originalText: selectedText, // Keep original text for reference
-				mode: "simplify",
-			});
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					summary: simplified,
+					url: url,
+					title: `Simplified: ${title}`,
+					elementLink: url,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+					isSelectedText: true,
+					originalText: selectedText, // Keep original text for reference
+					mode: "simplify",
+				});
+			} catch (e) {
+				console.warn("Could not send simplified text to sidebar:", e);
+				// Store in local storage as fallback
+				storeSummaryLocally({
+					summary: simplified,
+					url: url,
+					title: `Simplified: ${title}`,
+					elementLink: url,
+					timestamp: Date.now(),
+					contentHash: contentHash,
+					isSelectedText: true,
+					originalText: selectedText,
+					mode: "simplify",
+				});
+			}
 		} else {
-			// If simplifying fails, add the original text with a note
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: `Could not generate simplification. Original text: ${selectedText}`,
-				url: url,
-				title: `Simplified: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-			});
+			// Show error notification instead of adding to digest
+			await showErrorNotification(
+				"Text Simplification Failed",
+				"Could not simplify the selected text. Please check your AI settings and try again."
+			);
 		}
 	} catch (e) {
 		console.error("Error in handleSimplifySelectedText:", e);

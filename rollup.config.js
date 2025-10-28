@@ -22,6 +22,7 @@ export default {
 				{ src: "src/sidebar.css", dest: "dist" },
 				{ src: "src/settings.html", dest: "dist" },
 				{ src: "src/settings.css", dest: "dist" },
+				{ src: "src/icon.svg", dest: "dist" },
 			],
 		}),
 	],
