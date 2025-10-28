@@ -5,12 +5,14 @@ const summaryTypeSelect = document.getElementById("summary-type");
 const clearBtn = document.getElementById("clear-btn");
 const toggleGenerationBtn = document.getElementById("toggle-generation-btn");
 const stopAllBtn = document.getElementById("stop-all-btn");
+const searchInput = document.getElementById("search-input");
 
 let summaries = [];
 let processedContentHashes = new Set(); // Store processed content hashes persistently
 let activeSummarizations = 0; // Track number of active summarizations
 let isGenerationActive = false; // Track if generation is currently active
 let siteGroups = {}; // Group summaries by hostname
+let currentSearchQuery = ""; // Current search query for filtering
 
 // Helper function to update toggle button with icon and text
 function updateToggleButton(isActive) {
@@ -324,9 +326,27 @@ function renderGroupedSummaries() {
 }
 
 function renderSummaries(allSummaries) {
+	// Filter summaries based on search query
+	let filteredSummaries = allSummaries;
+	if (currentSearchQuery.trim()) {
+		const query = currentSearchQuery.toLowerCase().trim();
+		filteredSummaries = allSummaries.filter((summary) => {
+			// Search in title, summary content, and URL
+			const title = (summary.title || "").toLowerCase();
+			const summaryText = (summary.summary || "").toLowerCase();
+			const url = (summary.url || "").toLowerCase();
+
+			return (
+				title.includes(query) ||
+				summaryText.includes(query) ||
+				url.includes(query)
+			);
+		});
+	}
+
 	// Group summaries by hostname
 	const grouped = {};
-	allSummaries.forEach((summary) => {
+	filteredSummaries.forEach((summary) => {
 		try {
 			const hostname = summary.url
 				? new URL(summary.url).hostname
@@ -770,4 +790,10 @@ chrome.storage.sync.get(["summaries", "processedContentHashes"], (result) => {
 	if (result.processedContentHashes) {
 		processedContentHashes = new Set(result.processedContentHashes);
 	}
+});
+
+// Search functionality
+searchInput.addEventListener("input", () => {
+	currentSearchQuery = searchInput.value;
+	renderGroupedSummaries();
 });

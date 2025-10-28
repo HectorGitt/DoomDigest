@@ -1,7 +1,7 @@
 // content.js
 let summarized = new WeakSet();
 let processedContentHashes = new Set(); // Store hashes of processed content
-let summaryType = "key-points"; // default
+let summaryType = "teaser"; // default
 let summarizationEnabled = false; // Control flag for summarization - disabled by default
 let stopPendingRequested = false; // Flag to stop pending summarizations
 
@@ -243,7 +243,7 @@ chrome.storage.sync.get(["summaryType"], (result) => {
 	const validTypes = ["key-points", "headline", "teaser"];
 	summaryType = validTypes.includes(result.summaryType)
 		? result.summaryType
-		: "key-points";
+		: "teaser";
 });
 
 async function isSummarizerAvailable() {
@@ -427,7 +427,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 		const validTypes = ["key-points", "headline", "teaser"];
 		summaryType = validTypes.includes(msg.summaryType)
 			? msg.summaryType
-			: "key-points";
+			: "teaser";
 
 		// Update processed content hashes
 		if (msg.processedContentHashes) {
@@ -439,7 +439,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 			const validTypes = ["key-points", "headline", "teaser"];
 			summaryType = validTypes.includes(msg.summaryType)
 				? msg.summaryType
-				: "key-points";
+				: "teaser";
 		}
 
 		// Update processed content hashes
@@ -484,7 +484,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 		});
 	} else if (msg.type === "SNAP_PAGE_SUMMARY") {
 		// Handle page snap - summarize the entire page regardless of generation state
-		handlePageSnap(msg.summaryType || "key-points").catch((e) => {
+		handlePageSnap(msg.summaryType || "teaser").catch((e) => {
 			console.warn("Page snap failed:", e);
 		});
 	} else if (msg.type === "ADD_SELECTED_TEXT_RAW") {

@@ -42,7 +42,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 			// Snap the entire page
 			chrome.tabs.sendMessage(tab.id, {
 				type: "SNAP_PAGE_SUMMARY",
-				summaryType: "key-points", // Default to key-points for page snap
+				summaryType: "teaser", // Default to teaser for page snap
 			});
 		} else if (info.menuItemId === "add-to-digest") {
 			// Add selected text to digest without summarization
@@ -85,7 +85,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 			if (info.menuItemId === "snap-page") {
 				chrome.tabs.sendMessage(tab.id, {
 					type: "SNAP_PAGE_SUMMARY",
-					summaryType: "key-points",
+					summaryType: "teaser",
 				});
 			} else if (info.menuItemId === "add-to-digest") {
 				const selectedText = info.selectionText;

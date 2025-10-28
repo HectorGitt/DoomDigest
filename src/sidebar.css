@@ -79,6 +79,47 @@ h2 {
 	flex-shrink: 0;
 }
 
+/* Search controls styling */
+#search-controls {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+}
+
+#search-controls > label {
+	margin: 0;
+	flex-shrink: 0;
+	display: inline-flex;
+	align-items: center;
+	font-size: 13px;
+	font-weight: 500;
+	color: #666;
+}
+
+#search-controls #search-input {
+	flex: 1;
+	min-width: 150px;
+	background: rgba(0, 0, 0, 0.05);
+	color: inherit;
+	border: 1px solid rgba(0, 0, 0, 0.2);
+	border-radius: 6px;
+	padding: 8px 12px;
+	font-size: 12px;
+	font-family: inherit;
+	transition: border-color 0.3s ease;
+}
+
+#search-controls #search-input:focus {
+	outline: none;
+	border-color: rgba(59, 130, 246, 0.5);
+	box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+#search-controls #search-input::placeholder {
+	color: rgba(0, 0, 0, 0.4);
+}
+
 /* Make the toggle a fixed-size button next to the expanding select */
 #generation-controls #toggle-generation-btn {
 	flex: 0 0 auto;
