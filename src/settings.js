@@ -39,6 +39,8 @@ document.addEventListener("DOMContentLoaded", function () {
 	const syncGoogleDriveBtn = document.getElementById("sync-google-drive");
 	const removeGoogleDriveBtn = document.getElementById("remove-google-drive");
 	const googleDriveStatus = document.getElementById("google-drive-status");
+	const lastSyncInfo = document.getElementById("last-sync-info");
+	const lastSyncText = document.getElementById("last-sync-text");
 
 	// Notification settings
 	const enableAiNotifications = document.getElementById(
@@ -661,6 +663,8 @@ document.addEventListener("DOMContentLoaded", function () {
 
 			if (syncResponse.success) {
 				alert(syncResponse.message);
+				// Refresh last sync info
+				loadLastSyncInfo();
 			} else {
 				// Clear connection status on auth errors
 				if (
@@ -772,4 +776,47 @@ document.addEventListener("DOMContentLoaded", function () {
 			return true;
 		}
 	});
+
+	// Load and display last sync information
+	loadLastSyncInfo();
+
+	async function loadLastSyncInfo() {
+		try {
+			const result = await chrome.storage.sync.get([
+				"lastSyncTime",
+				"lastSyncDuration",
+				"lastSyncFailed",
+			]);
+			if (result.lastSyncTime) {
+				const syncDate = new Date(result.lastSyncTime).toLocaleString();
+				const syncDuration = result.lastSyncDuration
+					? formatDuration(result.lastSyncDuration)
+					: "Unknown";
+				const status = result.lastSyncFailed ? " (Failed)" : "";
+
+				lastSyncText.textContent = `Last sync: ${syncDate} (${syncDuration})${status}`;
+				lastSyncInfo.style.display = "block";
+			} else {
+				lastSyncInfo.style.display = "none";
+			}
+		} catch (error) {
+			console.error("Failed to load last sync info:", error);
+			lastSyncInfo.style.display = "none";
+		}
+	}
+
+	// Helper function to format duration
+	function formatDuration(milliseconds) {
+		const seconds = Math.floor(milliseconds / 1000);
+		const minutes = Math.floor(seconds / 60);
+		const hours = Math.floor(minutes / 60);
+
+		if (hours > 0) {
+			return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+		} else if (minutes > 0) {
+			return `${minutes}m ${seconds % 60}s`;
+		} else {
+			return `${seconds}s`;
+		}
+	}
 });

@@ -416,6 +416,8 @@ async function getGeminiApiKey() {
 
 // Handle Google Drive sync
 async function handleGoogleDriveSync(summaries) {
+	const syncStartTime = Date.now();
+
 	try {
 		// Set badge to indicate sync is running
 		await setSyncBadge(true);
@@ -434,15 +436,39 @@ async function handleGoogleDriveSync(summaries) {
 		// Sync summaries to Google Drive
 		await syncSummariesToDrive(token, summaries);
 
+		// Calculate sync duration
+		const syncEndTime = Date.now();
+		const syncDuration = syncEndTime - syncStartTime;
+
+		// Store last sync information
+		await chrome.storage.sync.set({
+			lastSyncTime: syncEndTime,
+			lastSyncDuration: syncDuration,
+		});
+
 		// Clear badge on success
 		await setSyncBadge(false);
 
 		return {
 			success: true,
-			message: "Successfully synced digest to Google Drive!",
+			message: `Successfully synced digest to Google Drive in ${formatDuration(
+				syncDuration
+			)}!`,
+			duration: syncDuration,
 		};
 	} catch (error) {
 		console.error("Google Drive sync failed:", error);
+
+		// Calculate sync duration even on failure
+		const syncEndTime = Date.now();
+		const syncDuration = syncEndTime - syncStartTime;
+
+		// Store last sync information (even failed syncs)
+		await chrome.storage.sync.set({
+			lastSyncTime: syncEndTime,
+			lastSyncDuration: syncDuration,
+			lastSyncFailed: true,
+		});
 
 		// Clear badge on error
 		await setSyncBadge(false);
@@ -463,7 +489,7 @@ async function handleGoogleDriveSync(summaries) {
 				"Permission denied. Please check that you have access to create files in Drive.";
 		}
 
-		return { success: false, error: errorMessage };
+		return { success: false, error: errorMessage, duration: syncDuration };
 	}
 }
 
@@ -559,7 +585,7 @@ async function handleGoogleDriveRemove() {
 
 async function syncSummariesToDrive(token, summaries) {
 	const fileName = `DoomDigest-${new Date().toISOString().split("T")[0]}.md`;
-	const markdownContent = createMarkdownContent(summaries);
+	const markdownContent = await createMarkdownContent(summaries);
 
 	try {
 		// Step 1: Create the file metadata
@@ -623,9 +649,23 @@ function createMultipartBody(metadata, content) {
 	return metadataPart + contentPart + closeDelimiter;
 }
 
-function createMarkdownContent(summaries) {
+async function createMarkdownContent(summaries) {
 	let content = `# DoomDigest Export\n\n`;
 	content += `*Generated on ${new Date().toLocaleString()}*\n\n`;
+
+	// Add sync information if available
+	const syncInfo = await chrome.storage.sync.get([
+		"lastSyncTime",
+		"lastSyncDuration",
+	]);
+	if (syncInfo.lastSyncTime) {
+		const syncDate = new Date(syncInfo.lastSyncTime).toLocaleString();
+		const syncDuration = syncInfo.lastSyncDuration
+			? formatDuration(syncInfo.lastSyncDuration)
+			: "Unknown";
+		content += `*Last synced to Google Drive: ${syncDate} (took ${syncDuration})*\n\n`;
+	}
+
 	content += `---\n\n`;
 
 	summaries.forEach((summary, index) => {
@@ -800,3 +840,18 @@ chrome.notifications.onButtonClicked.addListener(
 
 // Global variable to store export retry data
 let exportRetryData = null;
+
+// Helper function to format duration in human-readable format
+function formatDuration(milliseconds) {
+	const seconds = Math.floor(milliseconds / 1000);
+	const minutes = Math.floor(seconds / 60);
+	const hours = Math.floor(minutes / 60);
+
+	if (hours > 0) {
+		return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+	} else if (minutes > 0) {
+		return `${minutes}m ${seconds % 60}s`;
+	} else {
+		return `${seconds}s`;
+	}
+}
