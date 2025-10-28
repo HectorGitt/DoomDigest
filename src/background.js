@@ -588,14 +588,18 @@ async function syncSummariesToDrive(token, summaries) {
 	const markdownContent = await createMarkdownContent(summaries);
 
 	try {
-		// Step 1: Create the file metadata
+		// Step 1: Create or find the DoomDigest folder
+		const folderId = await createOrFindDoomDigestFolder(token);
+
+		// Step 2: Create the file metadata with parent folder
 		const metadata = {
 			name: fileName,
 			mimeType: "text/markdown",
 			description: "DoomDigest export - AI-powered article summaries",
+			parents: [folderId], // Specify the parent folder
 		};
 
-		// Step 2: Upload the file using Google Drive API multipart upload
+		// Step 3: Upload the file using Google Drive API multipart upload
 		const response = await fetch(
 			"https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
 			{
@@ -618,16 +622,83 @@ async function syncSummariesToDrive(token, summaries) {
 		}
 
 		const result = await response.json();
-		console.log("File created successfully:", result);
+		console.log("File created successfully in DoomDigest folder:", result);
 
 		return {
 			success: true,
 			fileId: result.id,
 			fileUrl: `https://drive.google.com/file/d/${result.id}/view`,
+			folderId: folderId,
 			message: `Successfully uploaded to Google Drive: ${fileName}`,
 		};
 	} catch (error) {
 		console.error("Direct Drive API call failed:", error);
+		throw error;
+	}
+}
+
+// Helper function to create or find DoomDigest folder
+async function createOrFindDoomDigestFolder(token) {
+	const folderName = "DoomDigest";
+
+	try {
+		// First, try to find existing folder
+		const searchResponse = await fetch(
+			`https://www.googleapis.com/drive/v3/files?q=name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+			{
+				method: "GET",
+				headers: {
+					Authorization: `Bearer ${token}`,
+				},
+			}
+		);
+
+		if (!searchResponse.ok) {
+			throw new Error(`Search failed: ${searchResponse.status}`);
+		}
+
+		const searchResult = await searchResponse.json();
+
+		// If folder exists, return its ID
+		if (searchResult.files && searchResult.files.length > 0) {
+			console.log(
+				"Found existing DoomDigest folder:",
+				searchResult.files[0].id
+			);
+			return searchResult.files[0].id;
+		}
+
+		// If folder doesn't exist, create it
+		console.log("Creating new DoomDigest folder...");
+		const createResponse = await fetch(
+			"https://www.googleapis.com/drive/v3/files",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({
+					name: folderName,
+					mimeType: "application/vnd.google-apps.folder",
+				}),
+			}
+		);
+
+		if (!createResponse.ok) {
+			const errorData = await createResponse.json();
+			throw new Error(
+				`Folder creation failed: ${createResponse.status} - ${
+					errorData.error?.message || "Unknown error"
+				}`
+			);
+		}
+
+		const createResult = await createResponse.json();
+		console.log("Created DoomDigest folder:", createResult.id);
+		return createResult.id;
+	} catch (error) {
+		console.error("Error creating/finding DoomDigest folder:", error);
 		throw error;
 	}
 }
