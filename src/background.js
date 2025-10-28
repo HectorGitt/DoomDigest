@@ -2,6 +2,22 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 
+// Global error handlers for service worker stability
+self.addEventListener("unhandledrejection", (event) => {
+	console.error(
+		"Unhandled promise rejection in background script:",
+		event.reason
+	);
+	// Prevent the service worker from crashing
+	event.preventDefault();
+});
+
+self.addEventListener("error", (event) => {
+	console.error("Unhandled error in background script:", event.error);
+	// Prevent the service worker from crashing
+	event.preventDefault();
+});
+
 // Create context menu items
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.create({
@@ -234,6 +250,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		// Handle clearing auto-sync alarm
 		chrome.alarms.clear("autoSync");
 		return true;
+	} else if (request.type === "SET_AUTO_ANALYTICS_SCHEDULE") {
+		// Handle setting up auto-analytics schedule
+		chrome.alarms.create("autoAnalytics", {
+			when: request.nextRunTime,
+		});
+		// Store the settings for the alarm
+		chrome.storage.sync.set({ autoAnalyticsSettings: request.settings });
+		return true;
+	} else if (request.type === "CLEAR_AUTO_ANALYTICS_SCHEDULE") {
+		// Handle clearing auto-analytics schedule
+		chrome.alarms.clear("autoAnalytics");
+		chrome.storage.sync.remove(["autoAnalyticsSettings"]);
+		return true;
 	} else if (request.type === "SHOW_TOAST_NOTIFICATION") {
 		// Handle toast notification requests
 		showToastNotification(request.title, request.message);
@@ -267,40 +296,61 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	}
 });
 chrome.storage.sync.get(["autoSyncFrequency"], (result) => {
-	const frequency = result.autoSyncFrequency;
-	if (frequency && frequency !== "disabled") {
-		// Recreate the alarm based on saved frequency
-		let alarmInfo;
-		switch (frequency) {
-			case "minute":
-				alarmInfo = {
-					name: "autoSync",
-					delayInMinutes: 1,
-					periodInMinutes: 1,
-				};
-				break;
-			case "weekly":
-				alarmInfo = {
-					name: "autoSync",
-					delayInMinutes: 7 * 24 * 60,
-					periodInMinutes: 7 * 24 * 60,
-				};
-				break;
-			case "monthly":
-				alarmInfo = {
-					name: "autoSync",
-					delayInMinutes: 30 * 24 * 60,
-					periodInMinutes: 30 * 24 * 60,
-				};
-				break;
+	try {
+		const frequency = result.autoSyncFrequency;
+		if (frequency && frequency !== "disabled") {
+			// Recreate the alarm based on saved frequency
+			let alarmInfo;
+			switch (frequency) {
+				case "minute":
+					alarmInfo = {
+						name: "autoSync",
+						delayInMinutes: 1,
+						periodInMinutes: 1,
+					};
+					break;
+				case "weekly":
+					alarmInfo = {
+						name: "autoSync",
+						delayInMinutes: 7 * 24 * 60,
+						periodInMinutes: 7 * 24 * 60,
+					};
+					break;
+				case "monthly":
+					alarmInfo = {
+						name: "autoSync",
+						delayInMinutes: 30 * 24 * 60,
+						periodInMinutes: 30 * 24 * 60,
+					};
+					break;
+			}
+			if (alarmInfo) {
+				chrome.alarms.create(alarmInfo.name, {
+					delayInMinutes: alarmInfo.delayInMinutes,
+					periodInMinutes: alarmInfo.periodInMinutes,
+				});
+				console.log(`Restored ${frequency} auto-sync alarm`);
+			}
 		}
-		if (alarmInfo) {
-			chrome.alarms.create(alarmInfo.name, {
-				delayInMinutes: alarmInfo.delayInMinutes,
-				periodInMinutes: alarmInfo.periodInMinutes,
+	} catch (error) {
+		console.error("Error restoring auto-sync alarm:", error);
+	}
+});
+
+// Restore auto-analytics alarm on startup
+chrome.storage.sync.get(["autoAnalyticsSettings"], (result) => {
+	try {
+		const settings = result.autoAnalyticsSettings;
+		if (settings && settings.enabled) {
+			// Calculate next run time and create alarm
+			const nextRunTime = calculateNextRunTime(settings.duration);
+			chrome.alarms.create("autoAnalytics", {
+				when: nextRunTime,
 			});
-			console.log(`Restored ${frequency} auto-sync alarm`);
+			console.log("Restored auto-analytics alarm");
 		}
+	} catch (error) {
+		console.error("Error restoring auto-analytics alarm:", error);
 	}
 });
 
@@ -346,6 +396,207 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 		}
 	}
 });
+
+// Handle alarm triggers for auto-analytics
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+	if (alarm.name === "autoAnalytics") {
+		try {
+			console.log(
+				"Auto-analytics alarm triggered, generating analytics..."
+			);
+
+			// Get stored settings
+			const result = await chrome.storage.sync.get([
+				"autoAnalyticsSettings",
+			]);
+			const settings = result.autoAnalyticsSettings;
+
+			if (!settings || !settings.enabled) {
+				console.log("Auto-analytics disabled, skipping");
+				return;
+			}
+
+			// Get filtered summaries based on settings
+			const timeFilter = getTimeFilterFromSettings(settings);
+			const summariesResponse = await chrome.runtime.sendMessage({
+				type: "GET_SUMMARIES_FOR_EXPORT",
+			});
+
+			if (!summariesResponse || !summariesResponse.summaries) {
+				console.log("No summaries available for analytics");
+				return;
+			}
+
+			let summaries = summariesResponse.summaries;
+
+			// Apply time filter if specified
+			if (timeFilter) {
+				summaries = summaries.filter((summary) => {
+					const summaryTime = summary.timestamp;
+					return (
+						summaryTime >= timeFilter.start &&
+						summaryTime <= timeFilter.end
+					);
+				});
+			}
+
+			if (summaries.length === 0) {
+				console.log("No summaries found for the selected time period");
+				return;
+			}
+
+			// Generate analytics using stored customization
+			const analyticsResponse = await chrome.runtime.sendMessage({
+				type: "GENERATE_CUSTOM_ANALYTICS",
+				summaries: summaries,
+				customization: {
+					duration: settings.duration,
+					depth: settings.depth,
+					focusAreas: settings.focusAreas,
+					format: settings.format,
+					customInstructions: settings.customInstructions,
+				},
+			});
+
+			if (analyticsResponse.success) {
+				// Save the analytics report automatically
+				const report = {
+					id: Date.now().toString(),
+					name: `Auto Analytics Report - ${new Date().toLocaleDateString()}`,
+					content: analyticsResponse.analytics,
+					timeFilter: timeFilter,
+					customization: {
+						duration: settings.duration,
+						depth: settings.depth,
+						focusAreas: settings.focusAreas,
+						format: settings.format,
+						customInstructions: settings.customInstructions,
+					},
+					generatedAt: new Date().toISOString(),
+					summaryCount: summaries.length,
+					savedAt: new Date().toISOString(),
+					autoGenerated: true,
+				};
+
+				// Get existing saved reports
+				const savedResult = await chrome.storage.sync.get([
+					"savedAnalyticsReports",
+				]);
+				const savedReports = savedResult.savedAnalyticsReports || [];
+
+				// Add new report
+				savedReports.unshift(report); // Add to beginning
+
+				// Keep only last 20 reports (more for auto-generated)
+				if (savedReports.length > 20) {
+					savedReports.splice(20);
+				}
+
+				// Save back to storage
+				await chrome.storage.sync.set({
+					savedAnalyticsReports: savedReports,
+				});
+
+				// Show notification
+				await chrome.notifications.create({
+					type: "basic",
+					iconUrl: "icon.svg",
+					title: "Auto Analytics Complete",
+					message: `Productivity analysis generated for ${summaries.length} summaries`,
+					silent: true,
+				});
+
+				console.log("Auto-analytics completed successfully");
+
+				// Schedule next run
+				const nextRunTime = calculateNextRunTime(settings.duration);
+				await chrome.runtime.sendMessage({
+					type: "SET_AUTO_ANALYTICS_SCHEDULE",
+					settings: settings,
+					nextRunTime: nextRunTime,
+				});
+			} else {
+				console.error(
+					"Auto-analytics generation failed:",
+					analyticsResponse.error
+				);
+			}
+		} catch (error) {
+			console.error("Auto-analytics error:", error);
+		}
+	}
+});
+
+// Helper function to get time filter from settings
+function getTimeFilterFromSettings(settings) {
+	const period = settings.timePeriod;
+	const now = new Date();
+
+	switch (period) {
+		case "today":
+			const today = new Date(now);
+			today.setHours(0, 0, 0, 0);
+			return { start: today.getTime(), end: now.getTime() };
+
+		case "week":
+			const weekStart = new Date(now);
+			weekStart.setDate(now.getDate() - now.getDay());
+			weekStart.setHours(0, 0, 0, 0);
+			return { start: weekStart.getTime(), end: now.getTime() };
+
+		case "month":
+			const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+			return { start: monthStart.getTime(), end: now.getTime() };
+
+		case "quarter":
+			const quarterStart = new Date(
+				now.getFullYear(),
+				Math.floor(now.getMonth() / 3) * 3,
+				1
+			);
+			return { start: quarterStart.getTime(), end: now.getTime() };
+
+		case "year":
+			const yearStart = new Date(now.getFullYear(), 0, 1);
+			return { start: yearStart.getTime(), end: now.getTime() };
+
+		case "custom":
+			if (settings.startDate && settings.endDate) {
+				const startDate = new Date(settings.startDate + "T00:00:00");
+				const endDate = new Date(settings.endDate + "T23:59:59");
+				return { start: startDate.getTime(), end: endDate.getTime() };
+			}
+			break;
+
+		default: // "all"
+			return null;
+	}
+}
+
+// Helper function to calculate next run time
+function calculateNextRunTime(duration) {
+	const now = new Date();
+	const nextRun = new Date(now);
+
+	switch (duration) {
+		case "quick":
+			nextRun.setHours(now.getHours() + 24); // Daily
+			break;
+		case "standard":
+			nextRun.setDate(now.getDate() + 7); // Weekly
+			break;
+		case "detailed":
+			nextRun.setDate(now.getDate() + 14); // Bi-weekly
+			break;
+		case "comprehensive":
+			nextRun.setMonth(now.getMonth() + 1); // Monthly
+			break;
+		default:
+			nextRun.setDate(now.getDate() + 7); // Default to weekly
+	}
+
+	return nextRun.getTime();
+}
 
 // Simplify text using the Rewriter API
 async function handleSimplifyText(text) {
@@ -1086,11 +1337,18 @@ chrome.notifications.onButtonClicked.addListener(
 					response.summaries &&
 					response.summaries.length > 0
 				) {
-					// Send retry request to settings page
-					await chrome.runtime.sendMessage({
-						type: "RETRY_EXPORT",
-						format: exportRetryData.format,
-					});
+					// Send retry request to settings page (ignore if not listening)
+					try {
+						await chrome.runtime.sendMessage({
+							type: "RETRY_EXPORT",
+							format: exportRetryData.format,
+						});
+					} catch (retryError) {
+						// Settings page not open or not listening - ignore this error
+						console.log(
+							"Settings page not available for retry - ignoring"
+						);
+					}
 				}
 			} catch (error) {
 				console.error("Failed to retry export:", error);

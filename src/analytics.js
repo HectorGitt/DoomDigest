@@ -1,4 +1,6 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { marked } from "marked";
+import DOMPurify from "dompurify";
 
 document.addEventListener("DOMContentLoaded", function () {
 	// DOM elements
@@ -7,6 +9,9 @@ document.addEventListener("DOMContentLoaded", function () {
 	const dateRangeDiv = document.getElementById("date-range");
 	const startDateInput = document.getElementById("start-date");
 	const endDateInput = document.getElementById("end-date");
+	const analysisDurationSelect = document.getElementById("analysis-duration");
+	const autoRunAnalyticsCheckbox =
+		document.getElementById("auto-run-analytics");
 	const generateAnalyticsBtn = document.getElementById("generate-analytics");
 	const analyticsResults = document.getElementById("analytics-results");
 	const analyticsContent = document.getElementById("analytics-content");
@@ -16,6 +21,13 @@ document.addEventListener("DOMContentLoaded", function () {
 	const copyAnalyticsBtn = document.getElementById("copy-analytics");
 	const savedAnalytics = document.getElementById("saved-analytics");
 	const savedReportsList = document.getElementById("saved-reports-list");
+
+	// Modal elements
+	const reportModal = document.getElementById("report-modal");
+	const modalTitle = document.getElementById("modal-title");
+	const modalGeneratedDate = document.getElementById("modal-generated-date");
+	const modalContent = document.getElementById("modal-content");
+	const closeModalBtn = document.getElementById("close-modal");
 
 	// Customization elements
 	const analysisDepth = document.getElementById("analysis-depth");
@@ -44,6 +56,21 @@ document.addEventListener("DOMContentLoaded", function () {
 		}
 	});
 
+	// Auto-run analytics handling
+	autoRunAnalyticsCheckbox.addEventListener("change", () => {
+		saveAutoRunSettings();
+		if (autoRunAnalyticsCheckbox.checked) {
+			setupAutoRunSchedule();
+		} else {
+			clearAutoRunSchedule();
+		}
+	});
+
+	// Analysis duration handling
+	analysisDurationSelect.addEventListener("change", () => {
+		saveAutoRunSettings();
+	});
+
 	// Generate analytics
 	generateAnalyticsBtn.addEventListener("click", () => generateAnalytics());
 
@@ -58,6 +85,14 @@ document.addEventListener("DOMContentLoaded", function () {
 		copyAnalyticsToClipboard()
 	);
 
+	// Modal close functionality
+	closeModalBtn.addEventListener("click", () => closeModal());
+	reportModal.addEventListener("click", (e) => {
+		if (e.target === reportModal) {
+			closeModal();
+		}
+	});
+
 	// Load saved reports on page load
 	loadSavedReports();
 
@@ -71,10 +106,13 @@ document.addEventListener("DOMContentLoaded", function () {
 
 			// Get customization options
 			const customization = {
+				duration: analysisDurationSelect.value,
 				depth: analysisDepth.value,
-				focusAreas: Array.from(focusAreas.selectedOptions).map(
-					(option) => option.value
-				),
+				focusAreas: Array.from(
+					document.querySelectorAll(
+						'input[name="focus-areas"]:checked'
+					)
+				).map((checkbox) => checkbox.value),
 				format: outputFormat.value,
 				customInstructions: customPrompt.value.trim(),
 			};
@@ -349,31 +387,27 @@ document.addEventListener("DOMContentLoaded", function () {
 			const report = savedReports.find((r) => r.id === reportId);
 
 			if (report) {
-				analyticsContent.innerHTML = renderMarkdownToHtml(
-					report.content
-				);
-				generatedDateSpan.textContent = new Date(
+				// Populate modal with report data
+				modalTitle.textContent = report.name;
+				modalGeneratedDate.textContent = `Generated: ${new Date(
 					report.generatedAt
-				).toLocaleString();
-				analyticsResults.style.display = "block";
+				).toLocaleString()}`;
+				modalContent.innerHTML = renderMarkdownToHtml(report.content);
 
-				// Store current analytics for operations
-				window.currentAnalytics = {
-					content: report.content,
-					timeFilter: report.timeFilter,
-					customization: report.customization,
-					generatedAt: report.generatedAt,
-					summaryCount: report.summaryCount,
-				};
-
-				// Scroll to results
-				analyticsResults.scrollIntoView({ behavior: "smooth" });
+				// Show modal
+				reportModal.style.display = "block";
+				document.body.style.overflow = "hidden"; // Prevent background scrolling
 			}
 		} catch (error) {
 			console.error("Error loading saved report:", error);
 			alert("Failed to load saved report: " + error.message);
 		}
 	};
+
+	function closeModal() {
+		reportModal.style.display = "none";
+		document.body.style.overflow = ""; // Restore scrolling
+	}
 
 	// Basic markdown -> HTML renderer (escape then replace common markdown constructs)
 	function escapeHtml(str) {
@@ -387,63 +421,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
 	function renderMarkdownToHtml(md) {
 		if (!md) return "";
-		// Escape first
-		let html = escapeHtml(md);
-
-		// Code blocks ```
-		html = html.replace(/```([\s\S]*?)```/g, function (m, code) {
-			return (
-				"<pre><code>" + code.replace(/&/g, "&amp;") + "</code></pre>"
-			);
-		});
-
-		// Headings
-		html = html.replace(/^###### (.*$)/gim, "<h6>$1</h6>");
-		html = html.replace(/^##### (.*$)/gim, "<h5>$1</h5>");
-		html = html.replace(/^#### (.*$)/gim, "<h4>$1</h4>");
-		html = html.replace(/^### (.*$)/gim, "<h3>$1</h3>");
-		html = html.replace(/^## (.*$)/gim, "<h2>$1</h2>");
-		html = html.replace(/^# (.*$)/gim, "<h1>$1</h1>");
-
-		// Bold and italics
-		html = html.replace(/\*\*(.*?)\*\*/gim, "<strong>$1</strong>");
-		html = html.replace(/\*(.*?)\*/gim, "<em>$1</em>");
-
-		// Links [text](url)
-		html = html.replace(
-			/\[([^\]]+)\]\(([^)]+)\)/gim,
-			'<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
-		);
-
-		// Unordered lists
-		html = html.replace(
-			/(^|\n)\s*[-\*+] (.+)/g,
-			function (m, prefix, item) {
-				return prefix + "<li>" + item + "</li>";
-			}
-		);
-		// Wrap consecutive <li> in <ul>
-		html = html.replace(
-			/(?:<li>[\s\S]*?<\/li>)(?:\s*<li>[\s\S]*?<\/li>)*/g,
-			function (group) {
-				if (group.startsWith("<li>")) return "<ul>" + group + "</ul>";
-				return group;
-			}
-		);
-
-		// Paragraphs (replace double newlines with paragraph)
-		html = html.replace(/\n{2,}/g, "</p><p>");
-		// Single newlines to <br>
-		html = html.replace(/\n/g, "<br>");
-
-		// Ensure wrapped in <p> for clean output
-		if (!html.trim().startsWith("<")) {
-			html = "<p>" + html + "</p>";
-		} else {
-			html = "<p>" + html + "</p>";
-		}
-
-		return html;
+		// Use marked for full markdown support, then sanitize
+		const html = marked.parse(md, { breaks: true, gfm: true });
+		return DOMPurify.sanitize(html);
 	}
 
 	window.deleteSavedReport = async function (reportId) {
@@ -489,6 +469,7 @@ Summaries Analyzed: ${window.currentAnalytics.summaryCount}
 Time Period: ${getTimePeriodDescription(window.currentAnalytics.timeFilter)}
 
 Analysis Customization:
+- Duration: ${window.currentAnalytics.customization.duration}
 - Depth: ${window.currentAnalytics.customization.depth}
 - Focus Areas: ${window.currentAnalytics.customization.focusAreas.join(", ")}
 - Format: ${window.currentAnalytics.customization.format}
@@ -574,6 +555,134 @@ ${window.currentAnalytics.content}
 		}
 	}
 
+	// Auto-run analytics functions
+	async function saveAutoRunSettings() {
+		try {
+			const settings = {
+				enabled: autoRunAnalyticsCheckbox.checked,
+				duration: analysisDurationSelect.value,
+				timePeriod: timePeriodSelect.value,
+				startDate: startDateInput.value,
+				endDate: endDateInput.value,
+				depth: analysisDepth.value,
+				focusAreas: Array.from(
+					document.querySelectorAll(
+						'input[name="focus-areas"]:checked'
+					)
+				).map((checkbox) => checkbox.value),
+				format: outputFormat.value,
+				customInstructions: customPrompt.value.trim(),
+			};
+
+			await chrome.storage.sync.set({
+				autoRunAnalyticsSettings: settings,
+			});
+		} catch (error) {
+			console.error("Error saving auto-run settings:", error);
+		}
+	}
+
+	async function loadAutoRunSettings() {
+		try {
+			const result = await chrome.storage.sync.get([
+				"autoRunAnalyticsSettings",
+			]);
+			const settings = result.autoRunAnalyticsSettings;
+
+			if (settings) {
+				autoRunAnalyticsCheckbox.checked = settings.enabled || false;
+				analysisDurationSelect.value = settings.duration || "standard";
+				timePeriodSelect.value = settings.timePeriod || "month";
+				if (settings.startDate)
+					startDateInput.value = settings.startDate;
+				if (settings.endDate) endDateInput.value = settings.endDate;
+				analysisDepth.value = settings.depth || "standard";
+				outputFormat.value = settings.format || "structured";
+				customPrompt.value = settings.customInstructions || "";
+
+				// Set focus areas checkboxes
+				document
+					.querySelectorAll('input[name="focus-areas"]')
+					.forEach((checkbox) => {
+						checkbox.checked = settings.focusAreas
+							? settings.focusAreas.includes(checkbox.value)
+							: [
+									"reading-habits",
+									"content-quality",
+									"productivity-insights",
+							  ].includes(checkbox.value);
+					});
+
+				// Trigger change events to update UI
+				timePeriodSelect.dispatchEvent(new Event("change"));
+			}
+		} catch (error) {
+			console.error("Error loading auto-run settings:", error);
+		}
+	}
+
+	async function setupAutoRunSchedule() {
+		try {
+			await saveAutoRunSettings();
+			const settings = (
+				await chrome.storage.sync.get(["autoRunAnalyticsSettings"])
+			).autoRunAnalyticsSettings;
+
+			if (!settings || !settings.enabled) return;
+
+			// Calculate next run time based on duration setting
+			const nextRunTime = calculateNextRunTime(settings.duration);
+
+			await chrome.runtime.sendMessage({
+				type: "SET_AUTO_ANALYTICS_SCHEDULE",
+				settings: settings,
+				nextRunTime: nextRunTime,
+			});
+
+			console.log(
+				"Auto-run analytics scheduled for:",
+				new Date(nextRunTime)
+			);
+		} catch (error) {
+			console.error("Error setting up auto-run schedule:", error);
+		}
+	}
+
+	async function clearAutoRunSchedule() {
+		try {
+			await chrome.runtime.sendMessage({
+				type: "CLEAR_AUTO_ANALYTICS_SCHEDULE",
+			});
+		} catch (error) {
+			console.error("Error clearing auto-run schedule:", error);
+		}
+	}
+
+	function calculateNextRunTime(duration) {
+		const now = new Date();
+		const nextRun = new Date(now);
+
+		switch (duration) {
+			case "quick":
+				nextRun.setHours(now.getHours() + 24); // Daily
+				break;
+			case "standard":
+				nextRun.setDate(now.getDate() + 7); // Weekly
+				break;
+			case "detailed":
+				nextRun.setDate(now.getDate() + 14); // Bi-weekly
+				break;
+			case "comprehensive":
+				nextRun.setMonth(now.getMonth() + 1); // Monthly
+				break;
+			default:
+				nextRun.setDate(now.getDate() + 7); // Default to weekly
+		}
+
+		return nextRun.getTime();
+	}
+
 	// Initialize
 	timePeriodSelect.dispatchEvent(new Event("change"));
+	loadAutoRunSettings();
 });
