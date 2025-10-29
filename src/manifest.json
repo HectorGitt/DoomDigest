@@ -49,6 +49,8 @@
 				"analytics.html",
 				"analytics.js",
 				"settings.css",
+				"digest.html",
+				"digest.css",
 				"icon.png"
 			],
 			"matches": ["<all_urls>"]

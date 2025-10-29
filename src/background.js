@@ -84,22 +84,82 @@ async function saveSummariesToIndexedDB(summaries) {
 // Load summaries from IndexedDB
 async function loadSummariesFromIndexedDB() {
 	try {
+		console.log("Background: Initializing IndexedDB access");
 		const db = await initIndexedDB();
+		console.log("Background: IndexedDB initialized successfully");
 		const transaction = db.transaction(["summaries"], "readonly");
 		const store = transaction.objectStore("summaries");
 
 		return new Promise((resolve, reject) => {
 			const request = store.getAll();
 			request.onsuccess = () => {
-				const summaries = request.result || [];
+				let summaries = request.result || [];
+				console.log(
+					"Background: Retrieved summaries from DB:",
+					summaries.length,
+					"items"
+				);
+
+				// Migrate existing digests to add type field if missing
+				summaries = migrateDigestTypes(summaries);
+
 				resolve(summaries);
 			};
-			request.onerror = () => reject(request.error);
+			request.onerror = () => {
+				console.error(
+					"Background: Failed to retrieve summaries from DB:",
+					request.error
+				);
+				reject(request.error);
+			};
 		});
 	} catch (error) {
-		console.error("Error loading summaries from IndexedDB:", error);
+		console.error(
+			"Background: Error loading summaries from IndexedDB:",
+			error
+		);
 		return [];
 	}
+}
+
+// Migrate existing digests to add type field based on their properties
+function migrateDigestTypes(summaries) {
+	let migrated = false;
+
+	summaries.forEach((summary) => {
+		if (!summary.type) {
+			migrated = true;
+			// Determine type based on existing properties
+			if (summary.isSelectedText) {
+				if (summary.mode === "explain") {
+					summary.type = "explained";
+				} else if (summary.mode === "simplify") {
+					summary.type = "simplified";
+				} else if (summary.isRawText) {
+					summary.type = "raw-text";
+				} else {
+					summary.type = "selected-text";
+				}
+			} else {
+				summary.type = "article";
+			}
+		}
+	});
+
+	if (migrated) {
+		console.log(
+			"Background: Migrated existing digests to include type field"
+		);
+		// Save the migrated data back to IndexedDB
+		saveSummariesToIndexedDB(summaries).catch((error) => {
+			console.error(
+				"Background: Failed to save migrated digests:",
+				error
+			);
+		});
+	}
+
+	return summaries;
 }
 
 // Create context menu items
@@ -453,17 +513,106 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
 				});
 			});
 		return true; // Keep message channel open for async response
-	} else if (request.type === "SYNC_TO_GOOGLE_DRIVE") {
-		// Handle Google Drive sync request from settings page
-		handleGoogleDriveSync(request.summaries)
-			.then((result) => {
-				sendResponse(result);
+	} else if (request.type === "GET_ALL_DIGESTS") {
+		// Handle request for all digests from digest page
+		console.log("Background: Received GET_ALL_DIGESTS request");
+
+		// Respond immediately to keep the message port open
+		sendResponse({ success: true, loading: true });
+
+		// Then load data asynchronously and send a separate message
+		loadSummariesFromIndexedDB()
+			.then((summaries) => {
+				console.log(
+					"Background: Loaded summaries from DB, count:",
+					summaries?.length || 0
+				);
+				// Send the actual data via a separate message
+				chrome.runtime
+					.sendMessage({
+						type: "DIGESTS_DATA",
+						digests: summaries || [],
+					})
+					.catch(() => {
+						// Ignore errors if digest page is not listening
+					});
 			})
 			.catch((error) => {
-				console.error("Google Drive sync error:", error);
-				sendResponse({ success: false, error: error.message });
+				console.error("Background: Error loading digests:", error);
+				// Send error via separate message
+				chrome.runtime
+					.sendMessage({
+						type: "DIGESTS_ERROR",
+						error: error.message,
+					})
+					.catch(() => {
+						// Ignore errors if digest page is not listening
+					});
 			});
-		return true; // Keep message channel open for async response
+
+		return true; // Keep message channel open for initial response
+	} else if (request.type === "DELETE_DIGEST") {
+		// Handle delete digest request from digest page
+		console.log(
+			"Background: Received DELETE_DIGEST request for ID:",
+			request.digestId
+		);
+
+		// Send immediate response to acknowledge the request
+		sendResponse({ success: true, acknowledged: true });
+
+		// Do the async work after acknowledging
+		loadSummariesFromIndexedDB()
+			.then((summaries) => {
+				console.log(
+					"Background: Loaded summaries for deletion, count:",
+					summaries?.length || 0
+				);
+				// Filter out the digest to delete
+				const filteredSummaries = summaries.filter(
+					(summary) => summary.id !== parseInt(request.digestId)
+				);
+				console.log(
+					"Background: After filtering, remaining count:",
+					filteredSummaries.length
+				);
+				return saveSummariesToIndexedDB(filteredSummaries);
+			})
+			.then(() => {
+				console.log("Background: Digest deleted successfully");
+				// Try to notify the digest page that deletion is complete
+				try {
+					chrome.runtime.sendMessage({
+						type: "DELETE_DIGEST_COMPLETE",
+						digestId: request.digestId,
+						success: true,
+					});
+				} catch (e) {
+					// Digest page may not be listening, that's ok
+					console.log(
+						"Digest page not available for completion notification"
+					);
+				}
+			})
+			.catch((error) => {
+				console.error("Background: Error deleting digest:", error);
+				// Try to notify the digest page of the error
+				try {
+					chrome.runtime.sendMessage({
+						type: "DELETE_DIGEST_COMPLETE",
+						digestId: request.digestId,
+						success: false,
+						error: error.message,
+					});
+				} catch (e) {
+					// Digest page may not be listening, that's ok
+					console.log(
+						"Digest page not available for error notification"
+					);
+				}
+			});
+
+		return true; // Keep message channel open for initial response
 	} else if (request.type === "CONNECT_GOOGLE_DRIVE") {
 		// Handle Google Drive connect request from settings page
 		handleGoogleDriveConnect()
@@ -1044,9 +1193,8 @@ async function handlePageSnap(
 				elementLink: elementLink.slice(0, 500), // Truncate elementLink to 500 chars
 				timestamp: Date.now(),
 				contentHash: contentHash,
-			};
-
-			// Add to storage
+				type: "article", // Page snap creates article-type digest
+			}; // Add to storage
 			const updatedSummaries = [...existingSummaries, summaryData];
 			await saveSummariesToIndexedDB(updatedSummaries);
 
@@ -1112,6 +1260,7 @@ async function handleAddSelectedTextRaw(selectedText, url, title) {
 			contentHash: contentHash,
 			isSelectedText: true,
 			isRawText: true, // Flag to indicate this is raw text
+			type: "raw-text", // Raw selected text type
 		};
 
 		// Add to storage
@@ -1184,6 +1333,7 @@ async function handleAddSelectedTextSummarized(selectedText, url, title) {
 					selectedText.length > 1000
 						? selectedText.slice(0, 1000) + "..."
 						: selectedText, // Keep original text for reference (truncated to 1KB)
+				type: "selected-text", // Summarized selected text type
 			};
 
 			// Add to storage
@@ -1270,6 +1420,7 @@ async function handleExplainSelectedText(selectedText, url, title) {
 						? selectedText.slice(0, 1000) + "..."
 						: selectedText, // Keep original text for reference (truncated to 1KB)
 				mode: "explain",
+				type: "explained", // Explained text type
 			};
 
 			// Add to storage
@@ -1358,6 +1509,7 @@ async function handleSimplifySelectedText(selectedText, url, title) {
 						? selectedText.slice(0, 1000) + "..."
 						: selectedText, // Keep original text for reference (truncated to 1KB)
 				mode: "simplify",
+				type: "simplified", // Simplified text type
 			};
 
 			// Add to storage
@@ -1621,7 +1773,12 @@ async function handleGoogleDriveSync(summaries) {
 		const token = await new Promise((resolve, reject) => {
 			chrome.identity.getAuthToken({ interactive: true }, (token) => {
 				if (chrome.runtime.lastError) {
-					reject(chrome.runtime.lastError);
+					reject(
+						new Error(
+							chrome.runtime.lastError.message ||
+								"Unknown runtime error"
+						)
+					);
 				} else {
 					resolve(token);
 				}
@@ -1695,7 +1852,12 @@ async function handleGoogleDriveConnect() {
 		const token = await new Promise((resolve, reject) => {
 			chrome.identity.getAuthToken({ interactive: true }, (token) => {
 				if (chrome.runtime.lastError) {
-					reject(chrome.runtime.lastError);
+					reject(
+						new Error(
+							chrome.runtime.lastError.message ||
+								"Unknown runtime error"
+						)
+					);
 				} else {
 					resolve(token);
 				}
@@ -1760,7 +1922,12 @@ async function handleGoogleDriveRemove() {
 			await new Promise((resolve, reject) => {
 				chrome.identity.removeCachedAuthToken({ token: token }, () => {
 					if (chrome.runtime.lastError) {
-						reject(chrome.runtime.lastError);
+						reject(
+							new Error(
+								chrome.runtime.lastError.message ||
+									"Unknown runtime error"
+							)
+						);
 					} else {
 						resolve();
 					}

@@ -465,70 +465,75 @@ function renderSummaries(allSummaries) {
 		});
 	}
 
-	// Group summaries by hostname
-	const grouped = {};
-	filteredSummaries.forEach((summary) => {
-		try {
-			const hostname = summary.url
-				? new URL(summary.url).hostname
-				: "Unknown Site";
-			if (!grouped[hostname]) {
-				grouped[hostname] = [];
-			}
-			grouped[hostname].push(summary);
-		} catch (e) {
-			// Handle invalid URLs
-			console.warn("Invalid URL in summary:", summary.url, e);
-			const hostname = "Unknown Site";
-			if (!grouped[hostname]) {
-				grouped[hostname] = [];
-			}
-			grouped[hostname].push(summary);
-		}
+	// Sort all summaries by timestamp (newest first)
+	filteredSummaries.sort((a, b) => {
+		const timeA = a.timestamp || 0;
+		const timeB = b.timestamp || 0;
+		return timeB - timeA;
 	});
 
-	// Sort hostnames and render groups
-	Object.keys(grouped)
-		.sort()
-		.forEach((hostname) => {
-			const siteSummaries = grouped[hostname];
+	// Limit to 20 summaries for sidebar view
+	const sidebarSummaries = filteredSummaries.slice(0, 20);
+	const hasMoreSummaries = filteredSummaries.length > 20;
 
-			// Create site group container
-			const siteGroup = document.createElement("div");
-			siteGroup.className = "site-group";
+	// Group summaries by day
+	const grouped = {};
+	sidebarSummaries.forEach((summary) => {
+		const date = summary.timestamp
+			? new Date(summary.timestamp).toDateString()
+			: "Unknown Date";
+		if (!grouped[date]) {
+			grouped[date] = [];
+		}
+		grouped[date].push(summary);
+	});
 
-			// Site header
-			const siteHeader = document.createElement("div");
-			siteHeader.className = "site-header";
-			siteHeader.textContent = hostname || "Unknown Site";
-			siteGroup.appendChild(siteHeader);
+	// Sort dates (newest first)
+	const sortedDates = Object.keys(grouped).sort((a, b) => {
+		const dateA = new Date(a).getTime();
+		const dateB = new Date(b).getTime();
+		return dateB - dateA;
+	});
 
-			// Sort summaries by timestamp (newest first)
-			siteSummaries.sort((a, b) => {
-				const timeA = a.timestamp || 0;
-				const timeB = b.timestamp || 0;
-				return timeB - timeA;
-			});
+	// Render groups
+	sortedDates.forEach((date) => {
+		const daySummaries = grouped[date];
 
-			// Render each summary in the group
-			siteSummaries.forEach((summary, index) => {
-				const card = document.createElement("div");
-				card.className = "summary-card";
+		// Create day group container
+		const dayGroup = document.createElement("div");
+		dayGroup.className = "day-group";
 
-				const time = summary.timestamp
-					? new Date(summary.timestamp).toLocaleTimeString()
-					: "Unknown Time";
+		// Day header
+		const dayHeader = document.createElement("div");
+		dayHeader.className = "day-header";
+		dayHeader.textContent = date;
+		dayGroup.appendChild(dayHeader);
 
-				// Add step indicator if multiple summaries from same site
-				const stepIndicator =
-					siteSummaries.length > 1
-						? ` (${index + 1}/${siteSummaries.length})`
-						: "";
+		// Render each summary in the day
+		daySummaries.forEach((summary) => {
+			const card = document.createElement("div");
+			card.className = "summary-card";
 
-				if (summary.loading) {
-					// Loading state
-					card.innerHTML = `
-            <small>${time}${stepIndicator}</small>
+			const time = summary.timestamp
+				? new Date(summary.timestamp).toLocaleTimeString()
+				: "Unknown Time";
+
+			// Get page title/hostname for display
+			let pageHeading = "";
+			try {
+				const url = new URL(summary.url);
+				pageHeading = url.hostname;
+			} catch (e) {
+				pageHeading = "Unknown Site";
+			}
+
+			if (summary.loading) {
+				// Loading state
+				card.innerHTML = `
+            <div class="card-header">
+                <small>${time}</small>
+                <div class="page-heading">${pageHeading}</div>
+            </div>
             <div class="title">${summary.title}</div>
             <div class="loading-animation">
               <div class="loading-dots">
@@ -538,51 +543,94 @@ function renderSummaries(allSummaries) {
               </div>
             </div>
           `;
-					card.classList.add("loading");
-				} else {
-					// Normal summary
-					const linkUrl = summary.elementLink || summary.url;
-					const isSelectedText = summary.isSelectedText;
-					const isRawText = summary.isRawText;
-					const displayTitle = isSelectedText
-						? summary.title
-						: summary.title || "Article Summary";
+				card.classList.add("loading");
+			} else {
+				// Normal summary
+				const linkUrl = summary.elementLink || summary.url;
+				const isSelectedText = summary.isSelectedText;
+				const isRawText = summary.isRawText;
+				const displayTitle = isSelectedText
+					? summary.title
+					: summary.title || "Article Summary";
 
-					card.innerHTML = `
-            <small>${time}${stepIndicator}</small>
+				// Add mode indicator for AI operations
+				let modeIndicator = "";
+				if (summary.mode) {
+					modeIndicator = ` <span class="mode-indicator">${summary.mode}</span>`;
+				}
+
+				card.innerHTML = `
+            <div class="card-header">
+                <small>${time}</small>
+                <div class="page-heading">${pageHeading}${modeIndicator}</div>
+            </div>
             <div class="title">${displayTitle}</div>
             <p>${summary.summary}</p>
           `;
 
-					// Add special styling for selected text
-					if (isSelectedText) {
-						if (isRawText) {
-							// Raw text styling
-							card.classList.add("selected-text-raw");
-						} else {
-							// Summarized text styling
-							card.classList.add("selected-text");
-						}
-					}
-
-					// Make the card clickable to open the link
-					if (linkUrl) {
-						card.classList.add("clickable");
-						card.addEventListener("click", () => {
-							chrome.tabs.create({ url: linkUrl });
-						});
+				// Add special styling for selected text
+				if (isSelectedText) {
+					if (isRawText) {
+						// Raw text styling
+						card.classList.add("selected-text-raw");
+					} else {
+						// Summarized text styling
+						card.classList.add("selected-text");
 					}
 				}
 
-				siteGroup.appendChild(card);
-			});
+				// Make the card clickable to open the link
+				if (linkUrl) {
+					card.classList.add("clickable");
+					card.addEventListener("click", () => {
+						chrome.tabs.create({ url: linkUrl });
+					});
+				}
+			}
 
-			container.appendChild(siteGroup);
+			dayGroup.appendChild(card);
 		});
+
+		container.appendChild(dayGroup);
+	});
+
+	// Add "View All" button if there are more summaries
+	if (hasMoreSummaries) {
+		const viewAllButton = document.createElement("button");
+		viewAllButton.id = "view-all-btn";
+		viewAllButton.innerHTML = `
+            <span class="material-icons">expand_more</span>
+            <span>View All Digests (${filteredSummaries.length})</span>
+        `;
+		viewAllButton.addEventListener("click", () => {
+			// Open the digest page
+			chrome.tabs.create({ url: chrome.runtime.getURL("digest.html") });
+		});
+		container.appendChild(viewAllButton);
+	}
 }
 
 // Apply website colors on load
 applyWebsiteColors();
+
+// Listen for visibility changes to refresh data when sidebar becomes visible
+document.addEventListener("visibilitychange", () => {
+	if (!document.hidden) {
+		// Sidebar became visible, refresh data
+		loadSummariesFromIndexedDB()
+			.then((loadedSummaries) => {
+				summaries = loadedSummaries || [];
+				renderGroupedSummaries();
+				statusDiv.textContent = `${summaries.length} summaries`;
+			})
+			.catch((error) => {
+				console.error(
+					"Error refreshing sidebar on visibility change:",
+					error
+				);
+			});
+	}
+});
 
 // Listen for tab changes and update colors
 chrome.runtime.onMessage.addListener((message) => {
@@ -898,6 +946,17 @@ chrome.runtime.onMessage.addListener((msg) => {
 		statusDiv.textContent = `Generating ${activeSummarizations} summary${
 			activeSummarizations > 1 ? "ies" : ""
 		}...`;
+	} else if (msg.type === "REFRESH_SIDEBAR") {
+		// Refresh sidebar data
+		loadSummariesFromIndexedDB()
+			.then((loadedSummaries) => {
+				summaries = loadedSummaries || [];
+				renderGroupedSummaries();
+				statusDiv.textContent = `${summaries.length} summaries`;
+			})
+			.catch((error) => {
+				console.error("Error refreshing sidebar:", error);
+			});
 	}
 });
 

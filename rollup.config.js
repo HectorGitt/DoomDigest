@@ -8,6 +8,7 @@ export default {
 		sidebar: "src/sidebar.js",
 		settings: "src/settings.js",
 		analytics: "src/analytics.js",
+		digest: "src/digest.js",
 	},
 	output: {
 		dir: "dist",
@@ -24,6 +25,8 @@ export default {
 				{ src: "src/settings.html", dest: "dist" },
 				{ src: "src/settings.css", dest: "dist" },
 				{ src: "src/analytics.html", dest: "dist" },
+				{ src: "src/digest.html", dest: "dist" },
+				{ src: "src/digest.css", dest: "dist" },
 				{ src: "src/icon.png", dest: "dist" },
 			],
 		}),
