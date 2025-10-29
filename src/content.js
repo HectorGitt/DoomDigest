@@ -65,7 +65,7 @@ async function showErrorNotification(title, message) {
 	try {
 		await chrome.notifications.create({
 			type: "basic",
-			iconUrl: chrome.runtime.getURL("icon.svg"),
+			iconUrl: chrome.runtime.getURL("icon.png"),
 			title: title,
 			message: message,
 		});
@@ -79,17 +79,17 @@ async function showErrorNotification(title, message) {
 // Helper function to store summary locally when sidebar is not available
 async function storeSummaryLocally(summaryData) {
 	try {
-		// Get existing summaries from storage
-		const result = await chrome.storage.sync.get(["summaries"]);
-		const summaries = result.summaries || [];
+		// Send to background script for proper storage with quota management
+		const response = await chrome.runtime.sendMessage({
+			type: "STORE_SUMMARY_LOCALLY",
+			summaryData: summaryData,
+		});
 
-		// Add the new summary
-		summaries.push(summaryData);
-
-		// Save back to storage
-		await chrome.storage.sync.set({ summaries: summaries });
-
-		console.log("Summary stored locally due to sidebar unavailability");
+		if (response && response.success) {
+			console.log("Summary stored locally via background script");
+		} else {
+			console.error("Failed to store summary locally:", response?.error);
+		}
 	} catch (e) {
 		console.error("Failed to store summary locally:", e);
 	}
@@ -588,465 +588,224 @@ if (summarizationEnabled) {
 // Handle page snap - summarize the entire page
 async function handlePageSnap(requestedSummaryType) {
 	try {
-		// Get the main page content
-		const pageContent = extractReadableContent();
-		if (pageContent.length === 0) {
-			console.warn("No content found for page snap");
-			return;
+		// Send to background script for processing
+		const response = await chrome.runtime.sendMessage({
+			type: "SNAP_PAGE",
+			url: location.href,
+			title: document.title,
+			summaryType: requestedSummaryType,
+		});
+
+		if (response && response.success) {
+			console.log("Page snap completed successfully");
+			return true;
+		} else {
+			console.error("Page snap failed:", response?.error);
+			return false;
 		}
-
-		// Use the first (most relevant) content block
-		const mainContent = pageContent[0];
-		const normalizedText = normalizeText(mainContent.text);
-
-		// Check if content is substantial enough
-		if (normalizedText.length < 100) {
-			console.warn("Content too short for page snap");
-			return;
-		}
-
-		// Create content hash to avoid duplicates
-		const contentHash = hashString(normalizedText);
-
-		// Check if already processed
-		if (processedContentHashes.has(contentHash)) {
-			console.log("Page already snapped");
-			return;
-		}
-
-		// Extract title and link
-		const title =
-			extractTitle(mainContent.element) ||
-			document.title ||
-			"Page Summary";
-		const elementLink =
-			extractElementLink(mainContent.element) || location.href;
-
-		// Temporarily set summary type for this snap
-		const originalSummaryType = summaryType;
-		summaryType = requestedSummaryType;
-
-		// Notify sidebar that summarization is starting
-		try {
-			await chrome.runtime.sendMessage({
-				type: "SUMMARIZING_START",
-				url: location.href,
-				title: `Snapping ${title}...`,
-				contentHash: contentHash,
-			});
-		} catch (e) {
-			// Sidebar might not be open, continue anyway
-			console.warn("Could not notify sidebar of page snap start:", e);
-		}
-
-		// Summarize the content
-		const text = normalizedText.slice(0, 2000); // Limit for API
-		const summary = await summarizeText(text);
-
-		// Restore original summary type
-		summaryType = originalSummaryType;
-
-		if (summary) {
-			// Mark as processed
-			processedContentHashes.add(contentHash);
-
-			// Send to sidebar
-			try {
-				await chrome.runtime.sendMessage({
-					type: "NEW_SUMMARY",
-					summary,
-					url: location.href,
-					title: title,
-					elementLink: elementLink,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-				});
-
-				// Show success notification for snap captured
-				await chrome.runtime.sendMessage({
-					type: "SHOW_TOAST_NOTIFICATION",
-					title: "Page Snapped",
-					message: `"${title}" has been added to your digest`,
-				});
-			} catch (e) {
-				console.warn("Could not send page snap to sidebar:", e);
-				// Store in local storage as fallback
-				storeSummaryLocally({
-					summary,
-					url: location.href,
-					title: title,
-					elementLink: elementLink,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-				});
-			}
-		}
-	} catch (e) {
-		console.error("Error in handlePageSnap:", e);
+	} catch (error) {
+		console.error("Error in handlePageSnap:", error);
+		return false;
 	}
 }
 
 // Handle adding selected text directly to digest
 async function handleAddSelectedTextRaw(selectedText, url, pageTitle) {
 	try {
-		// Create a unique hash for the selected text
-		const contentHash = hashString(selectedText + url + Date.now());
+		// Send to background script for processing
+		const response = await chrome.runtime.sendMessage({
+			type: "ADD_SELECTED_TEXT_RAW",
+			selectedText: selectedText,
+			url: url,
+			title: pageTitle,
+		});
 
-		// Check if already added (less likely for selected text, but good practice)
-		if (processedContentHashes.has(contentHash)) {
-			console.log("Selected text already added");
-			return;
+		if (response && response.success) {
+			console.log("Selected text added successfully");
+			return true;
+		} else {
+			console.error("Add selected text raw failed:", response?.error);
+			return false;
 		}
-
-		// Mark as processed to avoid duplicates
-		processedContentHashes.add(contentHash);
-
-		// Create a title for the selected text
-		const title =
-			selectedText.length > 50
-				? selectedText.slice(0, 50) + "..."
-				: selectedText;
-
-		// Send to sidebar as direct text addition (no summarization)
-		try {
-			await chrome.runtime.sendMessage({
-				type: "NEW_SUMMARY",
-				summary: selectedText, // Use the selected text directly
-				url: url,
-				title: `Selected Text: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-				isRawText: true, // Flag to indicate this is raw text
-			});
-		} catch (e) {
-			console.warn("Could not send raw text to sidebar:", e);
-			// Store in local storage as fallback
-			storeSummaryLocally({
-				summary: selectedText,
-				url: url,
-				title: `Selected Text: ${title}`,
-				elementLink: url,
-				timestamp: Date.now(),
-				contentHash: contentHash,
-				isSelectedText: true,
-				isRawText: true,
-			});
-		}
-	} catch (e) {
-		console.error("Error in handleAddSelectedTextRaw:", e);
+	} catch (error) {
+		console.error("Error in handleAddSelectedTextRaw:", error);
+		return false;
 	}
 }
 
 // Handle adding selected text with summarization to digest
 async function handleAddSelectedTextSummarized(selectedText, url, pageTitle) {
 	try {
-		// Create a unique hash for the selected text
-		const contentHash = hashString(selectedText + url + Date.now());
+		// Send to background script for processing
+		const response = await chrome.runtime.sendMessage({
+			type: "ADD_SELECTED_TEXT_SUMMARIZED",
+			selectedText: selectedText,
+			url: url,
+			title: pageTitle,
+		});
 
-		// Check if already added (less likely for selected text, but good practice)
-		if (processedContentHashes.has(contentHash)) {
-			console.log("Selected text already added");
-			return;
-		}
-
-		// Mark as processed to avoid duplicates
-		processedContentHashes.add(contentHash);
-
-		// Create a title for the selected text
-		const title =
-			selectedText.length > 50
-				? selectedText.slice(0, 50) + "..."
-				: selectedText;
-
-		// Notify sidebar that summarization is starting
-		try {
-			await chrome.runtime.sendMessage({
-				type: "SUMMARIZING_START",
-				url: url,
-				title: `Summarizing selected text...`,
-				contentHash: contentHash,
-			});
-		} catch (e) {
-			// Sidebar might not be open, continue anyway
-			console.warn("Could not notify sidebar of summarization start:", e);
-		}
-
-		// Summarize the selected text
-		const summary = await summarizeText(selectedText.slice(0, 2000)); // Limit for API
-
-		if (summary) {
-			// Send to sidebar with summarized text
-			try {
-				await chrome.runtime.sendMessage({
-					type: "NEW_SUMMARY",
-					summary: summary,
-					url: url,
-					title: `Selected Text: ${title}`,
-					elementLink: url,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-					isSelectedText: true,
-					originalText: selectedText, // Keep original text for reference
-				});
-
-				// Show AI insight notification
-				await chrome.runtime.sendMessage({
-					type: "SHOW_AI_INSIGHT_NOTIFICATION",
-					operation: "summarized",
-					title: title,
-				});
-			} catch (e) {
-				console.warn("Could not send summary to sidebar:", e);
-				// Store in local storage as fallback
-				storeSummaryLocally({
-					summary: summary,
-					url: url,
-					title: `Selected Text: ${title}`,
-					elementLink: url,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-					isSelectedText: true,
-					originalText: selectedText,
-				});
-			}
+		if (response && response.success) {
+			console.log("Selected text summarized successfully");
+			return true;
 		} else {
-			// Show error notification instead of adding to digest
-			await showErrorNotification(
-				"Summarization Failed",
-				"Could not summarize the selected text. Please check your AI settings and try again."
+			console.error(
+				"Add selected text summarized failed:",
+				response?.error
 			);
+			return false;
 		}
-	} catch (e) {
-		console.error("Error in handleAddSelectedTextSummarized:", e);
+	} catch (error) {
+		console.error("Error in handleAddSelectedTextSummarized:", error);
+		return false;
 	}
-}
-
-// Handle explaining selected text
+} // Handle explaining selected text
 async function handleExplainSelectedText(selectedText, url, pageTitle) {
 	try {
-		// Create a unique hash for the selected text
-		const contentHash = hashString(
-			selectedText + url + "explain" + Date.now()
-		);
+		// Send to background script for processing
+		const response = await chrome.runtime.sendMessage({
+			type: "EXPLAIN_SELECTED_TEXT",
+			selectedText: selectedText,
+			url: url,
+			title: pageTitle,
+		});
 
-		// Check if already processed
-		if (processedContentHashes.has(contentHash)) {
-			console.log("Selected text already explained");
-			return;
-		}
-
-		// Mark as processed to avoid duplicates
-		processedContentHashes.add(contentHash);
-
-		// Create a title for the selected text
-		const title =
-			selectedText.length > 50
-				? selectedText.slice(0, 50) + "..."
-				: selectedText;
-
-		// Notify sidebar that explanation is starting
-		try {
-			await chrome.runtime.sendMessage({
-				type: "SUMMARIZING_START",
-				url: url,
-				title: `Explaining selected text...`,
-				contentHash: contentHash,
-			});
-		} catch (e) {
-			// Sidebar might not be open, continue anyway
-			console.warn("Could not notify sidebar of explanation start:", e);
-		}
-
-		// Explain the selected text by sending to background script
-		const explanation = await explainText(selectedText.slice(0, 2000)); // Limit for API
-
-		if (explanation) {
-			// Send to sidebar with explanation
-			try {
-				await chrome.runtime.sendMessage({
-					type: "NEW_SUMMARY",
-					summary: explanation,
-					url: url,
-					title: `Explanation: ${title}`,
-					elementLink: url,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-					isSelectedText: true,
-					originalText: selectedText, // Keep original text for reference
-					mode: "explain",
-				});
-
-				// Show AI insight notification
-				await chrome.runtime.sendMessage({
-					type: "SHOW_AI_INSIGHT_NOTIFICATION",
-					operation: "explained",
-					title: title,
-				});
-			} catch (e) {
-				console.warn("Could not send explanation to sidebar:", e);
-				// Store in local storage as fallback
-				storeSummaryLocally({
-					summary: explanation,
-					url: url,
-					title: `Explanation: ${title}`,
-					elementLink: url,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-					isSelectedText: true,
-					originalText: selectedText,
-					mode: "explain",
-				});
-			}
+		if (response && response.success) {
+			console.log("Selected text explained successfully");
+			return true;
 		} else {
-			// Show error notification instead of adding to digest
-			await showErrorNotification(
-				"Text Explanation Failed",
-				"Could not generate an explanation for the selected text. Please check your AI settings and try again."
-			);
+			console.error("Explain selected text failed:", response?.error);
+			return false;
 		}
-	} catch (e) {
-		console.error("Error in handleExplainSelectedText:", e);
+	} catch (error) {
+		console.error("Error in handleExplainSelectedText:", error);
+		return false;
 	}
 }
 
 // Handle simplifying selected text
 async function handleSimplifySelectedText(selectedText, url, pageTitle) {
 	try {
-		// Create a unique hash for the selected text
-		const contentHash = hashString(
-			selectedText + url + "simplify" + Date.now()
-		);
-
-		// Check if already processed
-		if (processedContentHashes.has(contentHash)) {
-			console.log("Selected text already simplified");
-			return;
-		}
-
-		// Mark as processed to avoid duplicates
-		processedContentHashes.add(contentHash);
-
-		// Create a title for the selected text
-		const title =
-			selectedText.length > 50
-				? selectedText.slice(0, 50) + "..."
-				: selectedText;
-
-		// Notify sidebar that simplifying is starting
-		try {
-			await chrome.runtime.sendMessage({
-				type: "SUMMARIZING_START",
-				url: url,
-				title: `Simplifying selected text...`,
-				contentHash: contentHash,
-			});
-		} catch (e) {
-			// Sidebar might not be open, continue anyway
-			console.warn(
-				"Could not notify sidebar of simplification start:",
-				e
-			);
-		}
-
-		// Simplify the selected text by sending to background script
-		const simplified = await simplifyText(selectedText.slice(0, 2000)); // Limit for API
-
-		if (simplified) {
-			// Send to sidebar with simplified text
-			try {
-				await chrome.runtime.sendMessage({
-					type: "NEW_SUMMARY",
-					summary: simplified,
-					url: url,
-					title: `Simplified: ${title}`,
-					elementLink: url,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-					isSelectedText: true,
-					originalText: selectedText, // Keep original text for reference
-					mode: "simplify",
-				});
-
-				// Show AI insight notification
-				await chrome.runtime.sendMessage({
-					type: "SHOW_AI_INSIGHT_NOTIFICATION",
-					operation: "simplified",
-					title: title,
-				});
-			} catch (e) {
-				console.warn("Could not send simplified text to sidebar:", e);
-				// Store in local storage as fallback
-				storeSummaryLocally({
-					summary: simplified,
-					url: url,
-					title: `Simplified: ${title}`,
-					elementLink: url,
-					timestamp: Date.now(),
-					contentHash: contentHash,
-					isSelectedText: true,
-					originalText: selectedText,
-					mode: "simplify",
-				});
-			}
-		} else {
-			// Show error notification instead of adding to digest
-			await showErrorNotification(
-				"Text Simplification Failed",
-				"Could not simplify the selected text. Please check your AI settings and try again."
-			);
-		}
-	} catch (e) {
-		console.error("Error in handleSimplifySelectedText:", e);
-	}
-}
-
-// Explain selected text using external API
-async function explainText(text) {
-	try {
-		// Send request to background script to handle API call
+		// Send to background script for processing
 		const response = await chrome.runtime.sendMessage({
-			type: "EXPLAIN_TEXT",
-			text: text,
+			type: "SIMPLIFY_SELECTED_TEXT",
+			selectedText: selectedText,
+			url: url,
+			title: pageTitle,
 		});
 
 		if (response && response.success) {
-			return response.result;
+			console.log("Selected text simplified successfully");
+			return true;
 		} else {
-			console.warn("Explanation failed:", response?.error);
-			return null;
+			console.error("Simplify selected text failed:", response?.error);
+			return false;
 		}
-	} catch (e) {
-		console.error("Error in explainText:", e);
-		return null;
+	} catch (error) {
+		console.error("Error in handleSimplifySelectedText:", error);
+		return false;
 	}
 }
 
-// Simplify selected text using external API
-async function simplifyText(text) {
+// Check if current page is appropriate for auto-snap
+function isPageAppropriateForAutoSnap() {
 	try {
-		// Send request to background script to handle API call
-		const response = await chrome.runtime.sendMessage({
-			type: "SIMPLIFY_TEXT",
-			text: text,
-		});
+		// Skip login/authentication pages
+		const loginKeywords = [
+			"login",
+			"signin",
+			"sign-in",
+			"auth",
+			"authenticate",
+			"password",
+			"log-in",
+		];
+		const url = location.href.toLowerCase();
+		const title = document.title.toLowerCase();
 
-		if (response && response.success) {
-			return response.result;
-		} else {
-			console.warn("Simplify failed:", response?.error);
-			return null;
+		if (
+			loginKeywords.some(
+				(keyword) => url.includes(keyword) || title.includes(keyword)
+			)
+		) {
+			console.log(
+				"Skipping auto-snap: login/authentication page detected"
+			);
+			return false;
 		}
-	} catch (e) {
-		console.error("Error in simplifyText:", e);
-		return null;
+
+		// Skip very short pages
+		const bodyText = document.body.innerText || "";
+		const wordCount = bodyText
+			.split(/\s+/)
+			.filter((word) => word.length > 0).length;
+
+		if (wordCount < 100) {
+			console.log(
+				"Skipping auto-snap: page too short (less than 100 words)"
+			);
+			return false;
+		}
+
+		// Skip pages with mostly non-text content (e.g., image galleries, videos)
+		const textToTotalRatio =
+			bodyText.length / (document.body.innerHTML.length || 1);
+		if (textToTotalRatio < 0.1) {
+			console.log(
+				"Skipping auto-snap: page appears to be mostly non-text content"
+			);
+			return false;
+		}
+
+		// Skip error pages
+		const errorKeywords = [
+			"404",
+			"error",
+			"not found",
+			"server error",
+			"maintenance",
+		];
+		if (errorKeywords.some((keyword) => title.includes(keyword))) {
+			console.log("Skipping auto-snap: error page detected");
+			return false;
+		}
+
+		// Skip file download pages or binary content
+		const fileExtensions = [
+			".pdf",
+			".doc",
+			".docx",
+			".xls",
+			".xlsx",
+			".ppt",
+			".pptx",
+			".zip",
+			".rar",
+			".exe",
+			".dmg",
+		];
+		if (fileExtensions.some((ext) => url.includes(ext))) {
+			console.log("Skipping auto-snap: file download page detected");
+			return false;
+		}
+
+		return true;
+	} catch (error) {
+		console.error("Error checking page appropriateness:", error);
+		// Default to allowing auto-snap if check fails
+		return true;
 	}
 }
 
 // Perform automatic page snap after user activity threshold
 async function performAutoSnap() {
 	if (pageSnapped || !autoSnapEnabled) return;
+
+	// Check if page is appropriate for auto-snap
+	if (!isPageAppropriateForAutoSnap()) {
+		console.log("Auto-snap cancelled: page not appropriate");
+		pageSnapped = true; // Mark as snapped to prevent further attempts
+		return;
+	}
 
 	try {
 		console.log(
@@ -1056,8 +815,21 @@ async function performAutoSnap() {
 		// Mark page as snapped to prevent multiple snaps
 		pageSnapped = true;
 
-		// Use the existing page snap functionality
-		await handlePageSnap(summaryType);
+		// Send to background script for processing
+		const response = await chrome.runtime.sendMessage({
+			type: "SNAP_PAGE",
+			url: location.href,
+			title: document.title,
+			summaryType: summaryType,
+		});
+
+		if (response && response.success) {
+			console.log("Auto-snap completed successfully");
+		} else {
+			console.error("Auto-snap failed:", response?.error);
+			// Reset flag on failure so user can try manual snap
+			pageSnapped = false;
+		}
 	} catch (error) {
 		console.error("Auto-snap failed:", error);
 		// Reset flag on failure so user can try manual snap

@@ -18,6 +18,90 @@ self.addEventListener("error", (event) => {
 	event.preventDefault();
 });
 
+// IndexedDB setup for summaries storage
+let dbPromise = null;
+
+function initIndexedDB() {
+	if (dbPromise) return dbPromise;
+
+	dbPromise = new Promise((resolve, reject) => {
+		const request = indexedDB.open("DoomDigestDB", 1);
+
+		request.onerror = () => reject(request.error);
+		request.onsuccess = () => resolve(request.result);
+
+		request.onupgradeneeded = (event) => {
+			const db = event.target.result;
+
+			// Create summaries store if it doesn't exist
+			if (!db.objectStoreNames.contains("summaries")) {
+				const store = db.createObjectStore("summaries", {
+					keyPath: "id",
+					autoIncrement: true,
+				});
+				store.createIndex("timestamp", "timestamp", { unique: false });
+				store.createIndex("url", "url", { unique: false });
+				store.createIndex("contentHash", "contentHash", {
+					unique: false,
+				});
+			}
+		};
+	});
+
+	return dbPromise;
+}
+
+// Save summaries to IndexedDB
+async function saveSummariesToIndexedDB(summaries) {
+	try {
+		const db = await initIndexedDB();
+		const transaction = db.transaction(["summaries"], "readwrite");
+		const store = transaction.objectStore("summaries");
+
+		// Clear existing summaries and add new ones
+		await new Promise((resolve, reject) => {
+			const clearRequest = store.clear();
+			clearRequest.onsuccess = () => resolve();
+			clearRequest.onerror = () => reject(clearRequest.error);
+		});
+
+		// Add all summaries
+		for (const summary of summaries) {
+			await new Promise((resolve, reject) => {
+				const addRequest = store.add(summary);
+				addRequest.onsuccess = () => resolve();
+				addRequest.onerror = () => reject(addRequest.error);
+			});
+		}
+
+		return { success: true };
+	} catch (error) {
+		console.error("Error saving summaries to IndexedDB:", error);
+		return { success: false, error: error.message };
+	}
+}
+
+// Load summaries from IndexedDB
+async function loadSummariesFromIndexedDB() {
+	try {
+		const db = await initIndexedDB();
+		const transaction = db.transaction(["summaries"], "readonly");
+		const store = transaction.objectStore("summaries");
+
+		return new Promise((resolve, reject) => {
+			const request = store.getAll();
+			request.onsuccess = () => {
+				const summaries = request.result || [];
+				resolve(summaries);
+			};
+			request.onerror = () => reject(request.error);
+		});
+	} catch (error) {
+		console.error("Error loading summaries from IndexedDB:", error);
+		return [];
+	}
+}
+
 // Create context menu items
 chrome.runtime.onInstalled.addListener(() => {
 	chrome.contextMenus.create({
@@ -48,98 +132,173 @@ chrome.runtime.onInstalled.addListener(() => {
 // Handle context menu clicks
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 	try {
-		// Open the sidebar first to ensure it's ready to receive messages
-		await chrome.sidePanel.open({ tabId: tab.id });
-
-		// Small delay to ensure sidebar is fully loaded
-		await new Promise((resolve) => setTimeout(resolve, 100));
-
 		if (info.menuItemId === "snap-page") {
-			// Snap the entire page
-			chrome.tabs.sendMessage(tab.id, {
-				type: "SNAP_PAGE_SUMMARY",
-				summaryType: "teaser", // Default to teaser for page snap
-			});
+			// Snap the entire page - now works without sidebar
+			try {
+				const result = await handlePageSnap(
+					tab.url,
+					tab.title,
+					"teaser",
+					tab.id
+				);
+
+				if (result && result.success) {
+					// Show success notification
+					await showToastNotification(
+						"Page Snapped",
+						`"${tab.title}" has been added to your digest`
+					);
+				} else {
+					console.error("Page snap failed:", result?.error);
+					await chrome.notifications.create({
+						type: "basic",
+						iconUrl: chrome.runtime.getURL("icon.png"),
+						title: "Page Snap Failed",
+						message: result?.error || "Failed to snap page",
+						silent: true,
+					});
+				}
+			} catch (error) {
+				console.error("Page snap failed:", error.message || error);
+				await chrome.notifications.create({
+					type: "basic",
+					iconUrl: chrome.runtime.getURL("icon.png"),
+					title: "Page Snap Failed",
+					message: error.message || "Failed to snap page",
+					silent: true,
+				});
+			}
 		} else if (info.menuItemId === "add-to-digest") {
 			// Add selected text to digest without summarization
 			const selectedText = info.selectionText;
 			if (selectedText && selectedText.trim().length > 0) {
-				chrome.tabs.sendMessage(tab.id, {
-					type: "ADD_SELECTED_TEXT_RAW",
-					selectedText: selectedText.trim(),
-					url: tab.url,
-					title: tab.title,
-				});
+				try {
+					const result = await handleAddSelectedTextRaw(
+						selectedText.trim(),
+						tab.url,
+						tab.title
+					);
+
+					if (result && result.success) {
+						await chrome.notifications.create({
+							type: "basic",
+							iconUrl: chrome.runtime.getURL("icon.png"),
+							title: "Text Added",
+							message:
+								"Selected text has been added to your digest",
+							silent: true,
+						});
+					} else {
+						console.error("Add text failed:", result?.error);
+					}
+				} catch (error) {
+					console.error("Add text failed:", error.message || error);
+					await chrome.notifications.create({
+						type: "basic",
+						iconUrl: chrome.runtime.getURL("icon.png"),
+						title: "Add Text Failed",
+						message: error.message || "Failed to add selected text",
+						silent: true,
+					});
+				}
 			}
 		} else if (info.menuItemId === "summarize-selection") {
 			// Summarize selected text before adding to digest
 			const selectedText = info.selectionText;
 			if (selectedText && selectedText.trim().length > 0) {
-				chrome.tabs.sendMessage(tab.id, {
-					type: "ADD_SELECTED_TEXT_SUMMARIZED",
-					selectedText: selectedText.trim(),
-					url: tab.url,
-					title: tab.title,
-				});
+				try {
+					const result = await handleAddSelectedTextSummarized(
+						selectedText.trim(),
+						tab.url,
+						tab.title
+					);
+
+					if (result && result.success) {
+						// Notification is handled by the background handler
+					} else {
+						console.error(
+							"Summarize selection failed:",
+							result?.error
+						);
+						await chrome.notifications.create({
+							type: "basic",
+							iconUrl: chrome.runtime.getURL("icon.png"),
+							title: "Summarization Failed",
+							message:
+								result?.error ||
+								"Failed to summarize selected text",
+							silent: true,
+						});
+					}
+				} catch (error) {
+					console.error(
+						"Summarize selection failed:",
+						error.message || error
+					);
+					await chrome.notifications.create({
+						type: "basic",
+						iconUrl: chrome.runtime.getURL("icon.png"),
+						title: "Summarization Failed",
+						message:
+							error.message ||
+							"Failed to summarize selected text",
+						silent: true,
+					});
+				}
 			}
 		} else if (info.menuItemId === "simplify-selection") {
 			// Simplify selected text
 			const selectedText = info.selectionText;
 			if (selectedText && selectedText.trim().length > 0) {
-				chrome.tabs.sendMessage(tab.id, {
-					type: "SIMPLIFY_SELECTED_TEXT",
-					selectedText: selectedText.trim(),
-					url: tab.url,
-					title: tab.title,
-				});
+				try {
+					const result = await handleSimplifySelectedText(
+						selectedText.trim(),
+						tab.url,
+						tab.title
+					);
+
+					if (result && result.success) {
+						// Notification is handled by the background handler
+					} else {
+						console.error(
+							"Simplify selection failed:",
+							result?.error
+						);
+						await chrome.notifications.create({
+							type: "basic",
+							iconUrl: chrome.runtime.getURL("icon.png"),
+							title: "Simplification Failed",
+							message:
+								result?.error ||
+								"Failed to simplify selected text",
+							silent: true,
+						});
+					}
+				} catch (error) {
+					console.error(
+						"Simplify selection failed:",
+						error.message || error
+					);
+					await chrome.notifications.create({
+						type: "basic",
+						iconUrl: chrome.runtime.getURL("icon.png"),
+						title: "Simplification Failed",
+						message:
+							error.message || "Failed to simplify selected text",
+						silent: true,
+					});
+				}
 			}
 		}
 	} catch (error) {
 		console.error("Error handling context menu click:", error);
-		// Fallback: try to send message anyway in case sidebar was already open
-		try {
-			if (info.menuItemId === "snap-page") {
-				chrome.tabs.sendMessage(tab.id, {
-					type: "SNAP_PAGE_SUMMARY",
-					summaryType: "teaser",
-				});
-			} else if (info.menuItemId === "add-to-digest") {
-				const selectedText = info.selectionText;
-				if (selectedText && selectedText.trim().length > 0) {
-					chrome.tabs.sendMessage(tab.id, {
-						type: "ADD_SELECTED_TEXT_RAW",
-						selectedText: selectedText.trim(),
-						url: tab.url,
-						title: tab.title,
-					});
-				}
-			} else if (info.menuItemId === "summarize-selection") {
-				const selectedText = info.selectionText;
-				if (selectedText && selectedText.trim().length > 0) {
-					chrome.tabs.sendMessage(tab.id, {
-						type: "ADD_SELECTED_TEXT_SUMMARIZED",
-						selectedText: selectedText.trim(),
-						url: tab.url,
-						title: tab.title,
-					});
-				}
-			} else if (info.menuItemId === "simplify-selection") {
-				const selectedText = info.selectionText;
-				if (selectedText && selectedText.trim().length > 0) {
-					chrome.tabs.sendMessage(tab.id, {
-						type: "SIMPLIFY_SELECTED_TEXT",
-						selectedText: selectedText.trim(),
-						url: tab.url,
-						title: tab.title,
-					});
-				}
-			}
-		} catch (fallbackError) {
-			console.error(
-				"Fallback context menu handling also failed:",
-				fallbackError
-			);
-		}
+		await chrome.notifications.create({
+			type: "basic",
+			iconUrl: chrome.runtime.getURL("icon.png"),
+			title: "Operation Failed",
+			message: "An error occurred while processing your request",
+			silent: true,
+		});
 	}
 });
 
@@ -187,7 +346,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // Handle API requests from content script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
 	if (request.type === "SIMPLIFY_TEXT") {
 		handleSimplifyText(request.text)
 			.then((result) => {
@@ -198,13 +357,101 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				sendResponse({ success: false, error: error.message });
 			});
 		return true; // Keep message channel open for async response
+	} else if (request.type === "EXPLAIN_TEXT") {
+		handleExplainText(request.text)
+			.then((result) => {
+				sendResponse({ success: true, result });
+			})
+			.catch((error) => {
+				console.error("Explain text error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "SNAP_PAGE") {
+		handlePageSnap(
+			request.url,
+			request.title,
+			request.summaryType,
+			request.tabId
+		)
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Page snap error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "ADD_SELECTED_TEXT_RAW") {
+		handleAddSelectedTextRaw(
+			request.selectedText,
+			request.url,
+			request.title
+		)
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Add selected text raw error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "ADD_SELECTED_TEXT_SUMMARIZED") {
+		handleAddSelectedTextSummarized(
+			request.selectedText,
+			request.url,
+			request.title
+		)
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Add selected text summarized error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "EXPLAIN_SELECTED_TEXT") {
+		handleExplainSelectedText(
+			request.selectedText,
+			request.url,
+			request.title
+		)
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Explain selected text error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
+	} else if (request.type === "SIMPLIFY_SELECTED_TEXT") {
+		handleSimplifySelectedText(
+			request.selectedText,
+			request.url,
+			request.title
+		)
+			.then((result) => {
+				sendResponse(result);
+			})
+			.catch((error) => {
+				console.error("Simplify selected text error:", error);
+				sendResponse({ success: false, error: error.message });
+			});
+		return true; // Keep message channel open for async response
 	} else if (request.type === "GET_SUMMARIES_FOR_EXPORT") {
 		// Handle export request from settings page
-		chrome.storage.sync.get(["summaries"], (result) => {
-			sendResponse({
-				summaries: result.summaries || [],
+		loadSummariesFromIndexedDB()
+			.then((summaries) => {
+				sendResponse({
+					summaries: summaries || [],
+				});
+			})
+			.catch((error) => {
+				console.error("Error loading summaries for export:", error);
+				sendResponse({
+					summaries: [],
+				});
 			});
-		});
 		return true; // Keep message channel open for async response
 	} else if (request.type === "SYNC_TO_GOOGLE_DRIVE") {
 		// Handle Google Drive sync request from settings page
@@ -293,6 +540,26 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				sendResponse({ success: false, error: error.message });
 			});
 		return true; // Keep message channel open for async response
+	} else if (request.type === "STORE_SUMMARY_LOCALLY") {
+		// Handle local summary storage request from content script
+		try {
+			loadSummariesFromIndexedDB()
+				.then((summaries) => {
+					summaries.push(request.summaryData);
+					return saveSummariesToIndexedDB(summaries);
+				})
+				.then(() => {
+					sendResponse({ success: true });
+				})
+				.catch((error) => {
+					console.error("Store summary locally error:", error);
+					sendResponse({ success: false, error: error.message });
+				});
+		} catch (error) {
+			console.error("Store summary locally error:", error);
+			sendResponse({ success: false, error: error.message });
+		}
+		return true; // Keep message channel open for async response
 	}
 });
 chrome.storage.sync.get(["autoSyncFrequency"], (result) => {
@@ -361,8 +628,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 			console.log("Auto-sync alarm triggered, starting sync...");
 
 			// Get summaries from storage
-			const result = await chrome.storage.sync.get(["summaries"]);
-			const summaries = result.summaries || [];
+			const summaries = await loadSummariesFromIndexedDB();
 
 			if (summaries.length === 0) {
 				console.log("No summaries to sync");
@@ -418,16 +684,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 			// Get filtered summaries based on settings
 			const timeFilter = getTimeFilterFromSettings(settings);
-			const summariesResponse = await chrome.runtime.sendMessage({
-				type: "GET_SUMMARIES_FOR_EXPORT",
-			});
-
-			if (!summariesResponse || !summariesResponse.summaries) {
-				console.log("No summaries available for analytics");
-				return;
-			}
-
-			let summaries = summariesResponse.summaries;
+			const summaries = await loadSummariesFromIndexedDB();
 
 			// Apply time filter if specified
 			if (timeFilter) {
@@ -500,7 +757,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 				// Show notification
 				await chrome.notifications.create({
 					type: "basic",
-					iconUrl: "icon.svg",
+					iconUrl: chrome.runtime.getURL("icon.png"),
 					title: "Auto Analytics Complete",
 					message: `Productivity analysis generated for ${summaries.length} summaries`,
 					silent: true,
@@ -645,6 +902,497 @@ async function handleSimplifyText(text) {
 	} catch (error) {
 		console.error("Error in handleSimplifyText:", error);
 		throw error;
+	}
+}
+
+// Explain text using external API
+async function handleExplainText(text) {
+	try {
+		// Get API provider settings
+		const settings = await chrome.storage.sync.get([
+			"apiProvider",
+			"geminiApiKey",
+			"geminiApiTested",
+		]);
+
+		const provider = settings.apiProvider || "chrome-ai";
+
+		// Try Chrome AI Prompt API first if Chrome AI is selected
+		if (provider === "chrome-ai") {
+			try {
+				if ("LanguageModel" in self) {
+					const session = await LanguageModel.create({
+						monitor(m) {
+							m.addEventListener("downloadprogress", (e) => {
+								console.log(`Downloaded ${e.loaded * 100}%`);
+							});
+						},
+					});
+
+					const prompt = `Please explain the following text in simple terms, making it easy to understand. Break down complex concepts and provide context where needed:
+
+${text}
+
+Explanation:`;
+
+					const result = await session.prompt(prompt);
+					return result;
+				}
+			} catch (error) {
+				console.warn(
+					"Chrome AI Prompt API failed, falling back to Gemini:",
+					error
+				);
+			}
+		}
+
+		// Fallback to Gemini if available
+		if (settings.geminiApiTested && settings.geminiApiKey) {
+			return await explainWithGemini(text);
+		}
+
+		if (provider === "gemini" && settings.geminiApiKey) {
+			return await explainWithGemini(text);
+		}
+
+		// If no API is available, return original text with note
+		return `${text}\n\n(Note: Text explanation requires Chrome AI or Gemini API configuration.)`;
+	} catch (error) {
+		console.error("Error in handleExplainText:", error);
+		throw error;
+	}
+}
+
+// Handle page snap - summarize the entire page
+async function handlePageSnap(
+	url,
+	title,
+	summaryType = "teaser",
+	tabId = null
+) {
+	try {
+		// Send loading start message to sidebar
+		chrome.runtime.sendMessage({
+			type: "SHOW_LOADING",
+			message: "Snapping page...",
+		});
+
+		// Get page content from the specified tab
+		let pageContent = null;
+		if (tabId) {
+			try {
+				// Inject content extraction script into the tab
+				const results = await chrome.scripting.executeScript({
+					target: { tabId: tabId },
+					function: extractPageContent,
+				});
+				if (results && results[0] && results[0].result) {
+					pageContent = results[0].result;
+				}
+			} catch (error) {
+				console.warn("Failed to extract content from tab:", error);
+			}
+		}
+
+		if (!pageContent || pageContent.length === 0) {
+			throw new Error("No content found for page snap");
+		}
+
+		// Use the first (most relevant) content block
+		const mainContent = pageContent[0];
+		const normalizedText = normalizeText(mainContent.text);
+
+		// Check if content is substantial enough
+		if (normalizedText.length < 100) {
+			throw new Error("Content too short for page snap");
+		}
+
+		// Create content hash to avoid duplicates
+		const contentHash = hashString(normalizedText);
+
+		// Check if already processed
+		const existingSummaries = await loadSummariesFromIndexedDB();
+		const existingSummary = existingSummaries.find(
+			(s) => s.contentHash === contentHash
+		);
+		if (existingSummary) {
+			console.log("Page already snapped");
+			return { success: true, message: "Page already snapped" };
+		}
+
+		// Extract title and link
+		const pageTitle =
+			title || mainContent.title || document.title || "Page Summary";
+		const elementLink = mainContent.elementLink || url;
+
+		// Summarize the content
+		const text = normalizedText.slice(0, 2000); // Limit for API
+		const summary = await summarizeText(text, summaryType);
+
+		if (summary) {
+			// Create summary data - truncate content aggressively to fit storage limits
+			const summaryData = {
+				summary:
+					summary.length > 2000
+						? summary.slice(0, 2000) + "..."
+						: summary,
+				url: url.slice(0, 500), // Truncate URL to 500 chars
+				title:
+					pageTitle.length > 100
+						? pageTitle.slice(0, 100) + "..."
+						: pageTitle,
+				elementLink: elementLink.slice(0, 500), // Truncate elementLink to 500 chars
+				timestamp: Date.now(),
+				contentHash: contentHash,
+			};
+
+			// Add to storage
+			const updatedSummaries = [...existingSummaries, summaryData];
+			await saveSummariesToIndexedDB(updatedSummaries);
+
+			// Try to notify sidebar if open
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					...summaryData,
+				});
+			} catch (e) {
+				// Sidebar not open - that's fine, data is stored
+				console.log("Sidebar not available, summary stored locally");
+			}
+
+			// Show notification
+			await showToastNotification(
+				"Page Snapped",
+				`"${pageTitle}" has been added to your digest`
+			);
+
+			return { success: true, message: "Page snapped successfully" };
+		} else {
+			throw new Error("Failed to generate summary");
+		}
+	} catch (error) {
+		console.error("Error in handlePageSnap:", error);
+		throw error;
+	} finally {
+		// Always hide loading when done
+		chrome.runtime.sendMessage({ type: "HIDE_LOADING" });
+	}
+}
+
+// Handle adding selected text directly to digest
+async function handleAddSelectedTextRaw(selectedText, url, title) {
+	try {
+		// Create a unique hash for the selected text
+		const contentHash = hashString(selectedText + url + Date.now());
+
+		// Get existing summaries
+		const existingSummaries = await loadSummariesFromIndexedDB();
+
+		// Create a title for the selected text
+		const summaryTitle =
+			title ||
+			(selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText);
+
+		// Create summary data - truncate content aggressively to fit storage limits
+		const summaryData = {
+			summary:
+				selectedText.length > 2000
+					? selectedText.slice(0, 2000) + "..."
+					: selectedText,
+			url: url.slice(0, 500), // Truncate URL to 500 chars
+			title:
+				`Selected Text: ${summaryTitle}`.length > 100
+					? `Selected Text: ${summaryTitle.slice(0, 80)}...`
+					: `Selected Text: ${summaryTitle}`,
+			elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
+			timestamp: Date.now(),
+			contentHash: contentHash,
+			isSelectedText: true,
+			isRawText: true, // Flag to indicate this is raw text
+		};
+
+		// Add to storage
+		const updatedSummaries = [...existingSummaries, summaryData];
+		await saveSummariesToIndexedDB(updatedSummaries);
+
+		// Try to notify sidebar if open
+		try {
+			await chrome.runtime.sendMessage({
+				type: "NEW_SUMMARY",
+				...summaryData,
+			});
+		} catch (e) {
+			// Sidebar not open - that's fine, data is stored
+			console.log("Sidebar not available, text stored locally");
+		}
+
+		return { success: true, message: "Selected text added to digest" };
+	} catch (error) {
+		console.error("Error in handleAddSelectedTextRaw:", error);
+		throw error;
+	}
+}
+
+// Handle adding selected text with summarization to digest
+async function handleAddSelectedTextSummarized(selectedText, url, title) {
+	try {
+		// Send loading start message to sidebar
+		chrome.runtime.sendMessage({
+			type: "SHOW_LOADING",
+			message: "Summarizing text...",
+		});
+
+		// Create a unique hash for the selected text
+		const contentHash = hashString(selectedText + url + Date.now());
+
+		// Get existing summaries
+		const existingSummaries = await loadSummariesFromIndexedDB();
+
+		// Create a title for the selected text
+		const summaryTitle =
+			title ||
+			(selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText);
+
+		// Summarize the selected text
+		const summary = await summarizeText(
+			selectedText.slice(0, 2000),
+			"teaser"
+		);
+
+		if (summary) {
+			// Create summary data - truncate content aggressively to fit storage limits
+			const summaryData = {
+				summary:
+					summary.length > 2000
+						? summary.slice(0, 2000) + "..."
+						: summary,
+				url: url.slice(0, 500), // Truncate URL to 500 chars
+				title:
+					`Selected Text: ${summaryTitle}`.length > 100
+						? `Selected Text: ${summaryTitle.slice(0, 80)}...`
+						: `Selected Text: ${summaryTitle}`,
+				elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText:
+					selectedText.length > 1000
+						? selectedText.slice(0, 1000) + "..."
+						: selectedText, // Keep original text for reference (truncated to 1KB)
+			};
+
+			// Add to storage
+			const updatedSummaries = [...existingSummaries, summaryData];
+			await saveSummariesToIndexedDB(updatedSummaries);
+
+			// Try to notify sidebar if open
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					...summaryData,
+				});
+			} catch (e) {
+				// Sidebar not open - that's fine, data is stored
+				console.log("Sidebar not available, summary stored locally");
+			}
+
+			// Show notification
+			await showAiInsightNotification("summarized", summaryTitle);
+
+			return {
+				success: true,
+				message: "Selected text summarized and added to digest",
+			};
+		} else {
+			throw new Error("Failed to summarize selected text");
+		}
+	} catch (error) {
+		console.error("Error in handleAddSelectedTextSummarized:", error);
+		throw error;
+	} finally {
+		// Always hide loading when done
+		chrome.runtime.sendMessage({ type: "HIDE_LOADING" });
+	}
+}
+
+// Handle explaining selected text
+async function handleExplainSelectedText(selectedText, url, title) {
+	try {
+		// Send loading start message to sidebar
+		chrome.runtime.sendMessage({
+			type: "SHOW_LOADING",
+			message: "Explaining text...",
+		});
+
+		// Create a unique hash for the selected text
+		const contentHash = hashString(
+			selectedText + url + "explain" + Date.now()
+		);
+
+		// Get existing summaries
+		const existingSummaries = await loadSummariesFromIndexedDB();
+
+		// Create a title for the selected text
+		const summaryTitle =
+			title ||
+			(selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText);
+
+		// Explain the selected text
+		const explanation = await handleExplainText(
+			selectedText.slice(0, 2000)
+		);
+
+		if (explanation) {
+			// Create summary data - truncate content aggressively to fit storage limits
+			const summaryData = {
+				summary:
+					explanation.length > 2000
+						? explanation.slice(0, 2000) + "..."
+						: explanation,
+				url: url.slice(0, 500), // Truncate URL to 500 chars
+				title:
+					`Explanation: ${summaryTitle}`.length > 100
+						? `Explanation: ${summaryTitle.slice(0, 80)}...`
+						: `Explanation: ${summaryTitle}`,
+				elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText:
+					selectedText.length > 1000
+						? selectedText.slice(0, 1000) + "..."
+						: selectedText, // Keep original text for reference (truncated to 1KB)
+				mode: "explain",
+			};
+
+			// Add to storage
+			const updatedSummaries = [...existingSummaries, summaryData];
+			await saveSummariesToIndexedDB(updatedSummaries);
+
+			// Try to notify sidebar if open
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					...summaryData,
+				});
+			} catch (e) {
+				// Sidebar not open - that's fine, data is stored
+				console.log(
+					"Sidebar not available, explanation stored locally"
+				);
+			}
+
+			// Show notification
+			await showAiInsightNotification("explained", summaryTitle);
+
+			return {
+				success: true,
+				message: "Selected text explained and added to digest",
+			};
+		} else {
+			throw new Error("Failed to explain selected text");
+		}
+	} catch (error) {
+		console.error("Error in handleExplainSelectedText:", error);
+		throw error;
+	} finally {
+		// Always hide loading when done
+		chrome.runtime.sendMessage({ type: "HIDE_LOADING" });
+	}
+}
+
+// Handle simplifying selected text
+async function handleSimplifySelectedText(selectedText, url, title) {
+	try {
+		// Send loading start message to sidebar
+		chrome.runtime.sendMessage({
+			type: "SHOW_LOADING",
+			message: "Simplifying text...",
+		});
+
+		// Create a unique hash for the selected text
+		const contentHash = hashString(
+			selectedText + url + "simplify" + Date.now()
+		);
+
+		// Get existing summaries
+		const existingSummaries = await loadSummariesFromIndexedDB();
+
+		// Create a title for the selected text
+		const summaryTitle =
+			title ||
+			(selectedText.length > 50
+				? selectedText.slice(0, 50) + "..."
+				: selectedText);
+
+		// Simplify the selected text
+		const simplified = await handleSimplifyText(
+			selectedText.slice(0, 2000)
+		);
+
+		if (simplified) {
+			// Create summary data - truncate content aggressively to fit storage limits
+			const summaryData = {
+				summary:
+					simplified.length > 2000
+						? simplified.slice(0, 2000) + "..."
+						: simplified,
+				url: url.slice(0, 500), // Truncate URL to 500 chars
+				title:
+					`Simplified: ${summaryTitle}`.length > 100
+						? `Simplified: ${summaryTitle.slice(0, 80)}...`
+						: `Simplified: ${summaryTitle}`,
+				elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
+				timestamp: Date.now(),
+				contentHash: contentHash,
+				isSelectedText: true,
+				originalText:
+					selectedText.length > 1000
+						? selectedText.slice(0, 1000) + "..."
+						: selectedText, // Keep original text for reference (truncated to 1KB)
+				mode: "simplify",
+			};
+
+			// Add to storage
+			const updatedSummaries = [...existingSummaries, summaryData];
+			await saveSummariesToIndexedDB(updatedSummaries);
+
+			// Try to notify sidebar if open
+			try {
+				await chrome.runtime.sendMessage({
+					type: "NEW_SUMMARY",
+					...summaryData,
+				});
+			} catch (e) {
+				// Sidebar not open - that's fine, data is stored
+				console.log(
+					"Sidebar not available, simplified text stored locally"
+				);
+			}
+
+			// Show notification
+			await showAiInsightNotification("simplified", summaryTitle);
+
+			return {
+				success: true,
+				message: "Selected text simplified and added to digest",
+			};
+		} else {
+			throw new Error("Failed to simplify selected text");
+		}
+	} catch (error) {
+		console.error("Error in handleSimplifySelectedText:", error);
+		throw error;
+	} finally {
+		// Always hide loading when done
+		chrome.runtime.sendMessage({ type: "HIDE_LOADING" });
 	}
 }
 
@@ -1218,7 +1966,7 @@ async function showToastNotification(title, message) {
 		) {
 			await chrome.notifications.create({
 				type: "basic",
-				iconUrl: "icon.svg",
+				iconUrl: chrome.runtime.getURL("icon.png"),
 				title: title,
 				message: message,
 				silent: true, // Toast-style notification
@@ -1241,7 +1989,7 @@ async function showExportFailureNotification(format) {
 
 		const notificationId = await chrome.notifications.create({
 			type: "basic",
-			iconUrl: "icon.svg",
+			iconUrl: chrome.runtime.getURL("icon.png"),
 			title: "Export Failed",
 			message: `Failed to export digest as ${format.toUpperCase()}. Click to retry.`,
 			requireInteraction: true, // Full notification that stays until dismissed
@@ -1283,7 +2031,7 @@ async function showAiInsightNotification(operation, title) {
 
 		await chrome.notifications.create({
 			type: "basic",
-			iconUrl: "icon.svg",
+			iconUrl: chrome.runtime.getURL("icon.png"),
 			title: "AI Insight Ready",
 			message: message,
 			silent: true, // Toast-style notification
@@ -1378,5 +2126,272 @@ function formatDuration(milliseconds) {
 		return `${minutes}m ${seconds % 60}s`;
 	} else {
 		return `${seconds}s`;
+	}
+}
+
+// Helper function to save summaries with quota management
+async function saveSummariesWithQuotaManagement(summaries) {
+	try {
+		await chrome.storage.sync.set({ summaries: summaries });
+	} catch (error) {
+		if (error.message && error.message.includes("QUOTA_BYTES_PER_ITEM")) {
+			console.warn(
+				"Storage quota exceeded, attempting aggressive cleanup..."
+			);
+
+			// More aggressive cleanup: keep only the most recent 20 summaries
+			const trimmedSummaries = summaries
+				.sort((a, b) => b.timestamp - a.timestamp) // Sort by newest first
+				.slice(0, 20) // Keep only 20 most recent
+				.map((summary) => ({
+					...summary,
+					summary: summary.summary
+						? summary.summary.slice(0, 2000)
+						: "", // Truncate summary to 2KB max
+					title: summary.title ? summary.title.slice(0, 100) : "", // Truncate title to 100 chars
+					url: summary.url ? summary.url.slice(0, 500) : "", // Truncate URL to 500 chars
+					originalText: summary.originalText
+						? summary.originalText.slice(0, 1000)
+						: undefined, // Truncate original text
+				}));
+
+			try {
+				await chrome.storage.sync.set({ summaries: trimmedSummaries });
+				console.log(
+					"Successfully saved summaries after aggressive cleanup (kept 20 most recent, truncated content)"
+				);
+			} catch (retryError) {
+				console.error(
+					"Failed to save even after aggressive cleanup:",
+					retryError
+				);
+				throw new Error(
+					"Storage quota exceeded. Please clear some old summaries from your digest."
+				);
+			}
+		} else {
+			throw error;
+		}
+	}
+}
+
+function hashString(str) {
+	let hash = 0;
+	for (let i = 0; i < str.length; i++) {
+		const char = str.charCodeAt(i);
+		hash = (hash << 5) - hash + char;
+		hash = hash & hash; // Convert to 32-bit integer
+	}
+	return hash.toString();
+}
+
+function normalizeText(text) {
+	return text.replace(/\s+/g, " ").trim();
+}
+
+// Function to extract page content (injected into tabs)
+function extractPageContent() {
+	// Try to find main article content
+	const selectors = [
+		"article",
+		'[role="article"]',
+		".post-content",
+		".entry-content",
+		".article-content",
+		".story-body",
+		"main article",
+		"main .content",
+	];
+
+	for (const selector of selectors) {
+		const element = document.querySelector(selector);
+		if (element && element.innerText.trim().length > 200) {
+			return [
+				{
+					text: element.innerText.trim(),
+					element: element,
+					title: extractTitle(element),
+					elementLink: extractElementLink(element),
+				},
+			];
+		}
+	}
+
+	// Fallback: find largest text block
+	const textBlocks = Array.from(document.querySelectorAll("p, div, section"))
+		.map((el) => ({
+			text: el.innerText.trim(),
+			element: el,
+			title: extractTitle(el),
+			elementLink: extractElementLink(el),
+		}))
+		.filter((block) => {
+			const wordCount = block.text.split(/\s+/).length;
+			return wordCount > 50 && wordCount < 2000;
+		})
+		.sort((a, b) => b.text.length - a.text.length);
+
+	return textBlocks.slice(0, 3); // Return top 3 largest blocks
+
+	function extractTitle(el) {
+		// Try to find a heading within or near the element
+		const headings = el.querySelectorAll("h1, h2, h3, h4, h5, h6");
+		if (headings.length > 0) {
+			return headings[0].textContent.trim();
+		}
+
+		// Fallback to first line of text
+		const firstLine = el.innerText.split("\n")[0].trim();
+		return firstLine.length > 50
+			? firstLine.slice(0, 50) + "..."
+			: firstLine || "Article Summary";
+	}
+
+	function extractElementLink(el) {
+		// Try to find a link within the element (anchor tag)
+		const link = el.querySelector("a[href]");
+		if (link && link.href) {
+			return link.href;
+		}
+
+		// Try to find any element with a data-url or similar attribute
+		const dataUrl =
+			el.getAttribute("data-url") || el.getAttribute("data-href");
+		if (dataUrl) {
+			return dataUrl;
+		}
+
+		// Fallback to current page URL
+		return location.href;
+	}
+}
+
+// Summarize text using available APIs
+async function summarizeText(text, summaryType = "teaser") {
+	try {
+		// Get API provider settings
+		const settings = await chrome.storage.sync.get([
+			"apiProvider",
+			"geminiApiKey",
+			"geminiApiTested",
+		]);
+
+		const provider = settings.apiProvider || "chrome-ai";
+
+		// Try Chrome AI Summarizer first if Chrome AI is selected
+		if (provider === "chrome-ai") {
+			try {
+				if ("Summarizer" in self) {
+					const session = await Summarizer.create({
+						type: summaryType,
+						format: "plain-text",
+						length: "medium",
+						outputLanguage: "en",
+					});
+
+					const summary = await session.summarize(text);
+					await session.destroy();
+					return summary;
+				}
+			} catch (error) {
+				console.warn(
+					"Chrome AI Summarizer failed, falling back to Gemini:",
+					error
+				);
+			}
+		}
+
+		// Fallback to Gemini if available
+		if (settings.geminiApiTested && settings.geminiApiKey) {
+			return await summarizeWithGemini(text, summaryType);
+		}
+
+		if (provider === "gemini" && settings.geminiApiKey) {
+			return await summarizeWithGemini(text, summaryType);
+		}
+
+		// If no API is available, return error
+		throw new Error(
+			"Summarization requires Chrome AI or Gemini API configuration."
+		);
+	} catch (error) {
+		console.error("Error in summarizeText:", error);
+		throw error;
+	}
+}
+
+// Summarize text using Gemini API
+async function summarizeWithGemini(text, summaryType = "teaser") {
+	try {
+		const apiKey = await getGeminiApiKey();
+		if (!apiKey) {
+			throw new Error("Gemini API key not configured");
+		}
+
+		const genAI = new GoogleGenerativeAI(apiKey);
+		const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+		let prompt = "";
+		switch (summaryType) {
+			case "key-points":
+				prompt = `Please summarize the following text by extracting the key points and main ideas. Present them as a bulleted list:
+
+${text}
+
+Key Points:`;
+				break;
+			case "headline":
+				prompt = `Please create a concise headline that captures the main idea of the following text:
+
+${text}
+
+Headline:`;
+				break;
+			case "teaser":
+			default:
+				prompt = `Please create a brief teaser summary (2-3 sentences) that captures the essence of the following text:
+
+${text}
+
+Teaser Summary:`;
+				break;
+		}
+
+		const result = await model.generateContent(prompt);
+		const response = await result.response;
+		const summary = response.text().trim();
+
+		return summary;
+	} catch (error) {
+		console.error("Gemini summarize failed:", error);
+		throw new Error(`Gemini summarize failed: ${error.message}`);
+	}
+}
+
+// Explain text using Gemini API
+async function explainWithGemini(text) {
+	try {
+		const apiKey = await getGeminiApiKey();
+		if (!apiKey) {
+			throw new Error("Gemini API key not configured");
+		}
+
+		const genAI = new GoogleGenerativeAI(apiKey);
+		const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+		const prompt = `Please explain the following text in simple terms, making it easy to understand. Break down complex concepts and provide context where needed:
+
+${text}
+
+Explanation:`;
+
+		const result = await model.generateContent(prompt);
+		const response = await result.response;
+		const explanation = response.text().trim();
+
+		return explanation;
+	} catch (error) {
+		console.error("Gemini explain failed:", error);
+		throw new Error(`Gemini explain failed: ${error.message}`);
 	}
 }

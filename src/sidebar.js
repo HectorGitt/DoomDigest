@@ -13,6 +13,127 @@ let activeSummarizations = 0; // Track number of active summarizations
 let isGenerationActive = false; // Track if generation is currently active
 let siteGroups = {}; // Group summaries by hostname
 let currentSearchQuery = ""; // Current search query for filtering
+let isLoading = false; // Track loading state
+
+// Loading state management functions
+function showLoading(message = "Processing...") {
+	const loadingElement = document.getElementById("loading-indicator");
+	if (loadingElement) {
+		loadingElement.textContent = message;
+		loadingElement.style.display = "block";
+		isLoading = true;
+	}
+}
+
+function hideLoading() {
+	const loadingElement = document.getElementById("loading-indicator");
+	if (loadingElement) {
+		loadingElement.style.display = "none";
+		isLoading = false;
+	}
+}
+
+// IndexedDB setup for summaries storage
+let dbPromise = null;
+
+function initIndexedDB() {
+	if (dbPromise) return dbPromise;
+
+	dbPromise = new Promise((resolve, reject) => {
+		const request = indexedDB.open("DoomDigestDB", 1);
+
+		request.onerror = () => reject(request.error);
+		request.onsuccess = () => resolve(request.result);
+
+		request.onupgradeneeded = (event) => {
+			const db = event.target.result;
+
+			// Create summaries store if it doesn't exist
+			if (!db.objectStoreNames.contains("summaries")) {
+				const store = db.createObjectStore("summaries", {
+					keyPath: "id",
+					autoIncrement: true,
+				});
+				store.createIndex("timestamp", "timestamp", { unique: false });
+				store.createIndex("url", "url", { unique: false });
+				store.createIndex("contentHash", "contentHash", {
+					unique: false,
+				});
+			}
+		};
+	});
+
+	return dbPromise;
+}
+
+// Save summaries to IndexedDB
+async function saveSummariesToIndexedDB(summaries) {
+	try {
+		const db = await initIndexedDB();
+		const transaction = db.transaction(["summaries"], "readwrite");
+		const store = transaction.objectStore("summaries");
+
+		// Clear existing summaries and add new ones
+		await new Promise((resolve, reject) => {
+			const clearRequest = store.clear();
+			clearRequest.onsuccess = () => resolve();
+			clearRequest.onerror = () => reject(clearRequest.error);
+		});
+
+		// Add all summaries
+		for (const summary of summaries) {
+			await new Promise((resolve, reject) => {
+				const addRequest = store.add(summary);
+				addRequest.onsuccess = () => resolve();
+				addRequest.onerror = () => reject(addRequest.error);
+			});
+		}
+
+		return { success: true };
+	} catch (error) {
+		console.error("Error saving summaries to IndexedDB:", error);
+		return { success: false, error: error.message };
+	}
+}
+
+// Load summaries from IndexedDB
+async function loadSummariesFromIndexedDB() {
+	try {
+		const db = await initIndexedDB();
+		const transaction = db.transaction(["summaries"], "readonly");
+		const store = transaction.objectStore("summaries");
+
+		return new Promise((resolve, reject) => {
+			const request = store.getAll();
+			request.onsuccess = () => {
+				const summaries = request.result || [];
+				resolve(summaries);
+			};
+			request.onerror = () => reject(request.error);
+		});
+	} catch (error) {
+		console.error("Error loading summaries from IndexedDB:", error);
+		return [];
+	}
+}
+
+// Clear all summaries from IndexedDB
+async function clearIndexedDB() {
+	try {
+		const db = await initIndexedDB();
+		const transaction = db.transaction(["summaries"], "readwrite");
+		const store = transaction.objectStore("summaries");
+
+		return new Promise((resolve, reject) => {
+			const clearRequest = store.clear();
+			clearRequest.onsuccess = () => resolve();
+			clearRequest.onerror = () => reject(clearRequest.error);
+		});
+	} catch (error) {
+		console.error("Error clearing IndexedDB:", error);
+		throw error;
+	}
+}
 
 // Helper function to update toggle button with icon and text
 function updateToggleButton(isActive) {
@@ -470,32 +591,40 @@ chrome.runtime.onMessage.addListener((message) => {
 		setTimeout(() => {
 			applyWebsiteColors();
 		}, 100);
+	} else if (message.type === "SHOW_LOADING") {
+		showLoading(message.message || "Processing...");
+	} else if (message.type === "HIDE_LOADING") {
+		hideLoading();
 	}
 });
 
 // Load saved settings and processed hashes
-chrome.storage.sync.get(
-	["summaryType", "processedContentHashes", "summaries"],
-	(result) => {
-		const validTypes = ["key-points", "headline", "teaser"];
-		const savedType = validTypes.includes(result.summaryType)
-			? result.summaryType
-			: "key-points";
-		summaryTypeSelect.value = savedType;
+chrome.storage.sync.get(["summaryType", "processedContentHashes"], (result) => {
+	const validTypes = ["key-points", "headline", "teaser"];
+	const savedType = validTypes.includes(result.summaryType)
+		? result.summaryType
+		: "key-points";
+	summaryTypeSelect.value = savedType;
 
-		// Load processed content hashes
-		if (result.processedContentHashes) {
-			processedContentHashes = new Set(result.processedContentHashes);
-		}
+	// Load processed content hashes
+	if (result.processedContentHashes) {
+		processedContentHashes = new Set(result.processedContentHashes);
+	}
 
-		// Load saved summaries
-		if (result.summaries) {
-			summaries = result.summaries;
+	// Load saved summaries from IndexedDB
+	loadSummariesFromIndexedDB()
+		.then((loadedSummaries) => {
+			summaries = loadedSummaries || [];
 			renderGroupedSummaries();
 			updateStatus();
-		}
-	}
-);
+		})
+		.catch((error) => {
+			console.error("Error loading summaries from IndexedDB:", error);
+			summaries = [];
+			renderGroupedSummaries();
+			updateStatus();
+		});
+});
 
 // Save settings when changed
 summaryTypeSelect.addEventListener("change", () => {
@@ -523,8 +652,15 @@ clearBtn.addEventListener("click", () => {
 	activeSummarizations = 0; // Reset active summarizations
 	renderGroupedSummaries();
 
-	// Clear from storage
-	chrome.storage.sync.remove(["processedContentHashes", "summaries"]);
+	// Clear from IndexedDB and storage
+	clearIndexedDB()
+		.then(() => {
+			console.log("Summaries cleared from IndexedDB");
+		})
+		.catch((error) => {
+			console.error("Error clearing IndexedDB:", error);
+		});
+	chrome.storage.sync.remove(["processedContentHashes"]);
 
 	statusDiv.textContent = "Summaries cleared";
 	setTimeout(() => {
@@ -731,10 +867,14 @@ chrome.runtime.onMessage.addListener((msg) => {
 		// Add to summaries array
 		summaries.push(msg);
 
-		// Store summaries persistently
-		chrome.storage.sync.set({
-			summaries: summaries,
-		});
+		// Store summaries persistently in IndexedDB
+		saveSummariesToIndexedDB(summaries)
+			.then(() => {
+				console.log("Summary saved to IndexedDB");
+			})
+			.catch((error) => {
+				console.error("Error saving summary to IndexedDB:", error);
+			});
 
 		// Store content hash persistently
 		if (msg.contentHash) {
@@ -775,21 +915,38 @@ chrome.storage.onChanged.addListener((changes, namespace) => {
 // Handle messages from settings for export
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	if (message.type === "GET_SUMMARIES_FOR_EXPORT") {
-		sendResponse({ summaries: summaries });
+		// Load summaries from IndexedDB for export
+		loadSummariesFromIndexedDB()
+			.then((loadedSummaries) => {
+				sendResponse({ summaries: loadedSummaries || [] });
+			})
+			.catch((error) => {
+				console.error("Error loading summaries for export:", error);
+				sendResponse({ summaries: [] });
+			});
 		return true; // Keep the message channel open for async response
 	}
 });
 
 // Load persisted summaries on init
-chrome.storage.sync.get(["summaries", "processedContentHashes"], (result) => {
-	if (result.summaries) {
-		summaries = result.summaries;
-		renderGroupedSummaries();
-		statusDiv.textContent = `${summaries.length} summaries`;
-	}
+chrome.storage.sync.get(["processedContentHashes"], (result) => {
 	if (result.processedContentHashes) {
 		processedContentHashes = new Set(result.processedContentHashes);
 	}
+
+	// Load summaries from IndexedDB
+	loadSummariesFromIndexedDB()
+		.then((loadedSummaries) => {
+			summaries = loadedSummaries || [];
+			renderGroupedSummaries();
+			statusDiv.textContent = `${summaries.length} summaries`;
+		})
+		.catch((error) => {
+			console.error("Error loading summaries on init:", error);
+			summaries = [];
+			renderGroupedSummaries();
+			statusDiv.textContent = "0 summaries";
+		});
 });
 
 // Search functionality
@@ -797,3 +954,8 @@ searchInput.addEventListener("input", () => {
 	currentSearchQuery = searchInput.value;
 	renderGroupedSummaries();
 });
+
+// Update status display
+function updateStatus() {
+	statusDiv.textContent = `${summaries.length} summaries`;
+}

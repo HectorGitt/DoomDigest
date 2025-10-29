@@ -24,7 +24,7 @@ export default {
 				{ src: "src/settings.html", dest: "dist" },
 				{ src: "src/settings.css", dest: "dist" },
 				{ src: "src/analytics.html", dest: "dist" },
-				{ src: "src/icon.svg", dest: "dist" },
+				{ src: "src/icon.png", dest: "dist" },
 			],
 		}),
 	],
