@@ -838,5 +838,16 @@
 		</div>
 
 		<script src="analytics.js" type="module"></script>
+		<script>
+			// Load toast and modal components
+			const extensionId = chrome.runtime.id;
+			const toastScript = document.createElement("script");
+			toastScript.src = `chrome-extension://${extensionId}/toast.js`;
+			document.head.appendChild(toastScript);
+
+			const modalScript = document.createElement("script");
+			modalScript.src = `chrome-extension://${extensionId}/modal.js`;
+			document.head.appendChild(modalScript);
+		</script>
 	</body>
 </html>

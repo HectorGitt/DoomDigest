@@ -51,6 +51,8 @@
 				"settings.css",
 				"digest.html",
 				"digest.css",
+				"toast.js",
+				"modal.js",
 				"icon.png"
 			],
 			"matches": ["<all_urls>"]

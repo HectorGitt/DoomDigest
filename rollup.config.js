@@ -28,6 +28,8 @@ export default {
 				{ src: "src/digest.html", dest: "dist" },
 				{ src: "src/digest.css", dest: "dist" },
 				{ src: "src/icon.png", dest: "dist" },
+				{ src: "src/toast.js", dest: "dist" },
+				{ src: "src/modal.js", dest: "dist" },
 			],
 		}),
 	],

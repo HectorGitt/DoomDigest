@@ -17,11 +17,29 @@ class DigestManager {
 	}
 
 	async init() {
+		await this.loadComponents();
 		this.bindEvents();
 		await this.loadDigests();
 		this.updateStats();
 		this.renderDigests();
 		this.populateSiteFilter();
+	}
+
+	async loadComponents() {
+		// Load toast and modal components
+		const extensionId = chrome.runtime.id;
+		await this.loadScript(`chrome-extension://${extensionId}/toast.js`);
+		await this.loadScript(`chrome-extension://${extensionId}/modal.js`);
+	}
+
+	loadScript(src) {
+		return new Promise((resolve, reject) => {
+			const script = document.createElement("script");
+			script.src = src;
+			script.onload = resolve;
+			script.onerror = reject;
+			document.head.appendChild(script);
+		});
 	}
 
 	bindEvents() {
@@ -191,7 +209,7 @@ class DigestManager {
 		} catch (error) {
 			console.error("DigestManager: Exception in loadDigests:", error);
 			console.error("DigestManager: Error stack:", error.stack);
-			this.showError("Error loading digests");
+			toast.error("Error loading digests");
 		} finally {
 			document.getElementById("loading-indicator").style.display = "none";
 		}
@@ -616,23 +634,32 @@ class DigestManager {
 	copyDigest(digestId) {
 		const digest = this.allDigests.find((d) => d.id === parseInt(digestId));
 		if (digest && digest.summary) {
-			navigator.clipboard.writeText(digest.summary).catch((err) => {
-				console.error("Failed to copy digest:", err);
-				// Fallback for older browsers
-				const textArea = document.createElement("textarea");
-				textArea.value = digest.summary;
-				document.body.appendChild(textArea);
-				textArea.select();
-				document.execCommand("copy");
-				document.body.removeChild(textArea);
-			});
+			navigator.clipboard
+				.writeText(digest.summary)
+				.then(() => {
+					toast.success("Digest copied to clipboard");
+				})
+				.catch((err) => {
+					console.error("Failed to copy digest:", err);
+					// Fallback for older browsers
+					const textArea = document.createElement("textarea");
+					textArea.value = digest.summary;
+					document.body.appendChild(textArea);
+					textArea.select();
+					document.execCommand("copy");
+					document.body.removeChild(textArea);
+					toast.success("Digest copied to clipboard");
+				});
 		}
 	}
 
 	async deleteDigest(digestId) {
-		if (!confirm("Are you sure you want to delete this digest?")) {
-			return;
-		}
+		const confirmed = await modal.confirm(
+			"Are you sure you want to delete this digest? This action cannot be undone.",
+			"Delete Digest"
+		);
+
+		if (!confirmed) return;
 
 		try {
 			console.log("DigestManager: Deleting digest with ID:", digestId);
@@ -725,23 +752,23 @@ class DigestManager {
 				this.renderDigests();
 
 				// Show success message
-				this.showSuccess("Digest deleted successfully");
+				toast.success("Digest deleted successfully");
 			} else {
 				console.error(
 					"DigestManager: Failed to acknowledge delete request:",
 					result?.error
 				);
-				this.showError("Failed to delete digest");
+				toast.error("Failed to delete digest");
 			}
 		} catch (error) {
 			console.error("DigestManager: Error deleting digest:", error);
-			this.showError("Error deleting digest");
+			toast.error("Error deleting digest");
 		}
 	}
 
 	exportDigests() {
 		if (this.filteredDigests.length === 0) {
-			alert("No digests to export");
+			modal.alert("No digests to export");
 			return;
 		}
 
