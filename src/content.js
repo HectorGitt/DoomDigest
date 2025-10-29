@@ -5,6 +5,13 @@ let summaryType = "teaser"; // default
 let summarizationEnabled = false; // Control flag for summarization - disabled by default
 let stopPendingRequested = false; // Flag to stop pending summarizations
 
+// Auto-snap functionality
+let autoSnapEnabled = false; // Control flag for auto-snap
+let autoSnapDuration = 15; // Default duration in seconds
+let pageActivityStartTime = null; // When user started being active on page
+let autoSnapTimer = null; // Timer for auto-snap
+let pageSnapped = false; // Flag to ensure only one snap per page
+
 // Simple hash function for content deduplication
 function hashString(str) {
 	let hash = 0;
@@ -239,12 +246,17 @@ function getArticleText() {
 }
 
 // Load settings from storage
-chrome.storage.sync.get(["summaryType"], (result) => {
-	const validTypes = ["key-points", "headline", "teaser"];
-	summaryType = validTypes.includes(result.summaryType)
-		? result.summaryType
-		: "teaser";
-});
+chrome.storage.sync.get(
+	["summaryType", "autoSnapEnabled", "autoSnapDuration"],
+	(result) => {
+		const validTypes = ["key-points", "headline", "teaser"];
+		summaryType = validTypes.includes(result.summaryType)
+			? result.summaryType
+			: "teaser";
+		autoSnapEnabled = result.autoSnapEnabled || false;
+		autoSnapDuration = parseInt(result.autoSnapDuration) || 15;
+	}
+);
 
 async function isSummarizerAvailable() {
 	if (!("Summarizer" in self)) return false;
@@ -529,6 +541,41 @@ window.addEventListener("scroll", () => {
 			console.warn("Scroll summarization failed:", e);
 		});
 	}, 1000); // Quick response for feed detection
+});
+
+// Auto-snap activity tracking
+function trackUserActivity() {
+	if (!autoSnapEnabled || pageSnapped) return;
+
+	// Reset activity timer on any user interaction
+	clearTimeout(autoSnapTimer);
+
+	if (pageActivityStartTime === null) {
+		pageActivityStartTime = Date.now();
+	}
+
+	// Set timer for auto-snap
+	autoSnapTimer = setTimeout(() => {
+		performAutoSnap();
+	}, autoSnapDuration * 1000);
+}
+
+// Track various user activities
+document.addEventListener("mousemove", trackUserActivity);
+document.addEventListener("scroll", trackUserActivity);
+document.addEventListener("keydown", trackUserActivity);
+document.addEventListener("click", trackUserActivity);
+
+// Reset auto-snap when page becomes hidden (user switches tabs)
+document.addEventListener("visibilitychange", () => {
+	if (document.hidden) {
+		// Clear timer when user leaves the page
+		clearTimeout(autoSnapTimer);
+		autoSnapTimer = null;
+	} else if (autoSnapEnabled && !pageSnapped && pageActivityStartTime) {
+		// Restart timer when user returns (if they were previously active)
+		trackUserActivity();
+	}
 });
 
 // Initial check
@@ -994,5 +1041,26 @@ async function simplifyText(text) {
 	} catch (e) {
 		console.error("Error in simplifyText:", e);
 		return null;
+	}
+}
+
+// Perform automatic page snap after user activity threshold
+async function performAutoSnap() {
+	if (pageSnapped || !autoSnapEnabled) return;
+
+	try {
+		console.log(
+			`Auto-snapping page after ${autoSnapDuration} seconds of activity`
+		);
+
+		// Mark page as snapped to prevent multiple snaps
+		pageSnapped = true;
+
+		// Use the existing page snap functionality
+		await handlePageSnap(summaryType);
+	} catch (error) {
+		console.error("Auto-snap failed:", error);
+		// Reset flag on failure so user can try manual snap
+		pageSnapped = false;
 	}
 }

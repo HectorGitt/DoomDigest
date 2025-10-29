@@ -204,6 +204,46 @@
 					</div>
 				</div>
 			</div>
+
+			<div class="setting-group">
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="auto-snap-enabled">Auto-Snap Pages</label>
+						<p class="description">
+							Automatically summarize pages after spending time
+							reading them
+						</p>
+					</div>
+					<div class="setting-control">
+						<input type="checkbox" id="auto-snap-enabled" />
+					</div>
+				</div>
+			</div>
+
+			<div
+				class="setting-group"
+				id="auto-snap-duration-group"
+				style="display: none"
+			>
+				<div class="setting-item">
+					<div class="setting-info">
+						<label for="auto-snap-duration">Auto-Snap Delay</label>
+						<p class="description">
+							Time to wait before automatically summarizing the
+							page
+						</p>
+					</div>
+					<div class="setting-control">
+						<select id="auto-snap-duration">
+							<option value="10">10 seconds</option>
+							<option value="15" selected>15 seconds</option>
+							<option value="30">30 seconds</option>
+							<option value="60">1 minute</option>
+							<option value="120">2 minutes</option>
+						</select>
+					</div>
+				</div>
+			</div>
 		</div>
 
 		<div class="settings-section">

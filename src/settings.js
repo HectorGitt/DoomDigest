@@ -17,6 +17,11 @@ document.addEventListener("DOMContentLoaded", function () {
 	const defaultSummaryType = document.getElementById("default-summary-type");
 	const autoSummarize = document.getElementById("auto-summarize");
 	const smartTopics = document.getElementById("smart-topics");
+	const autoSnapEnabled = document.getElementById("auto-snap-enabled");
+	const autoSnapDuration = document.getElementById("auto-snap-duration");
+	const autoSnapDurationGroup = document.getElementById(
+		"auto-snap-duration-group"
+	);
 	const showAdvancedAiStatus = document.getElementById(
 		"show-advanced-ai-status"
 	);
@@ -82,6 +87,11 @@ document.addEventListener("DOMContentLoaded", function () {
 	defaultSummaryType.addEventListener("change", saveSettings);
 	autoSummarize.addEventListener("change", saveSettings);
 	smartTopics.addEventListener("change", saveSettings);
+	autoSnapEnabled.addEventListener("change", function () {
+		toggleAutoSnapDuration();
+		saveSettings();
+	});
+	autoSnapDuration.addEventListener("change", saveSettings);
 	showAdvancedAiStatus.addEventListener("change", function () {
 		toggleApiSettings(apiProviderSelect.value);
 		saveSettings();
@@ -139,6 +149,12 @@ document.addEventListener("DOMContentLoaded", function () {
 			frequency === "monthly" ? "flex" : "none";
 	}
 
+	function toggleAutoSnapDuration() {
+		autoSnapDurationGroup.style.display = autoSnapEnabled.checked
+			? "block"
+			: "none";
+	}
+
 	async function checkAllAPIStatuses() {
 		// Check Chrome AI status
 		const chromeAIStatus = await checkAPIStatus("summarizer");
@@ -163,6 +179,8 @@ document.addEventListener("DOMContentLoaded", function () {
 				"defaultSummaryType",
 				"autoSummarize",
 				"smartTopics",
+				"autoSnapEnabled",
+				"autoSnapDuration",
 				"showAdvancedAiStatus",
 				"geminiApiTested",
 				"googleDriveConnected",
@@ -180,6 +198,8 @@ document.addEventListener("DOMContentLoaded", function () {
 					result.defaultSummaryType || "key-points";
 				autoSummarize.checked = result.autoSummarize !== false;
 				smartTopics.checked = result.smartTopics !== false;
+				autoSnapEnabled.checked = result.autoSnapEnabled || false;
+				autoSnapDuration.value = result.autoSnapDuration || "15";
 				showAdvancedAiStatus.checked =
 					result.showAdvancedAiStatus || false;
 
@@ -215,6 +235,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				// Apply settings after loading
 				toggleApiSettings(apiProviderSelect.value);
 				toggleSyncDayPickers(autoSyncFrequency.value);
+				toggleAutoSnapDuration();
 			}
 		);
 	}
@@ -226,6 +247,8 @@ document.addEventListener("DOMContentLoaded", function () {
 			defaultSummaryType: defaultSummaryType.value,
 			autoSummarize: autoSummarize.checked,
 			smartTopics: smartTopics.checked,
+			autoSnapEnabled: autoSnapEnabled.checked,
+			autoSnapDuration: autoSnapDuration.value,
 			showAdvancedAiStatus: showAdvancedAiStatus.checked,
 			autoSyncFrequency: autoSyncFrequency.value,
 			weeklySyncDay: weeklySyncDay.value,
