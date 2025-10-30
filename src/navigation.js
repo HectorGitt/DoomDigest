@@ -17,7 +17,7 @@ class DoomDigestNavigation {
 		nav.innerHTML = `
             <div class="nav-container">
                 <div class="nav-brand">
-                    <span class="material-icons">description</span>
+                    <img src="icon.png" alt="DoomDigest" class="nav-icon">
                     <span>DoomDigest</span>
                 </div>
                 <div class="nav-links">
@@ -83,9 +83,10 @@ class DoomDigestNavigation {
                 text-decoration: none;
             }
 
-            .nav-brand .material-icons {
-                color: #3b82f6;
-                font-size: 24px;
+            .nav-brand .nav-icon {
+                width: 24px;
+                height: 24px;
+                margin-right: 8px;
             }
 
             .nav-links {
@@ -130,8 +131,10 @@ class DoomDigestNavigation {
                     font-size: 16px;
                 }
 
-                .nav-brand .material-icons {
-                    font-size: 20px;
+                .nav-brand .nav-icon {
+                    width: 20px;
+                    height: 20px;
+                    margin-right: 6px;
                 }
 
                 .nav-link {

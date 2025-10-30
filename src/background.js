@@ -993,6 +993,79 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
 				console.log("Auto-analytics completed successfully");
 
+				// Check if auto-sync to Google Drive is enabled
+				const autoSyncSettings = await chrome.storage.sync.get([
+					"autoAnalyticsSyncEnabled",
+					"googleDriveConnected",
+				]);
+
+				if (
+					autoSyncSettings.autoAnalyticsSyncEnabled &&
+					autoSyncSettings.googleDriveConnected
+				) {
+					try {
+						console.log(
+							"Auto-syncing analytics report to Google Drive..."
+						);
+
+						// Sync the generated analytics report to Google Drive
+						const syncResult = await handleAnalyticsGoogleDriveSync(
+							{
+								content: analyticsResponse.analytics,
+								generatedAt: new Date().toISOString(),
+								customization: {
+									duration: settings.duration,
+									depth: settings.depth,
+									focusAreas: settings.focusAreas,
+									format: settings.format,
+									customInstructions:
+										settings.customInstructions,
+								},
+								summaryCount: summaries.length,
+							}
+						);
+
+						if (syncResult.success) {
+							console.log(
+								"Auto-analytics sync completed successfully:",
+								syncResult.message
+							);
+
+							// Update notification to include sync success
+							await chrome.notifications.create({
+								type: "basic",
+								iconUrl: chrome.runtime.getURL("icon.png"),
+								title: "Auto Analytics Complete",
+								message: `Productivity analysis generated and synced to Google Drive for ${summaries.length} summaries`,
+								silent: true,
+							});
+						} else {
+							console.error(
+								"Auto-analytics sync failed:",
+								syncResult.error
+							);
+							// Still show success for generation, but log sync failure
+							await chrome.notifications.create({
+								type: "basic",
+								iconUrl: chrome.runtime.getURL("icon.png"),
+								title: "Auto Analytics Complete",
+								message: `Productivity analysis generated for ${summaries.length} summaries (sync failed: ${syncResult.error})`,
+								silent: true,
+							});
+						}
+					} catch (syncError) {
+						console.error("Auto-analytics sync error:", syncError);
+						// Don't fail the entire process if sync fails
+						await chrome.notifications.create({
+							type: "basic",
+							iconUrl: chrome.runtime.getURL("icon.png"),
+							title: "Auto Analytics Complete",
+							message: `Productivity analysis generated for ${summaries.length} summaries (sync failed)`,
+							silent: true,
+						});
+					}
+				}
+
 				// Schedule next run
 				const nextRunTime = calculateNextRunTime(settings.duration);
 				await chrome.runtime.sendMessage({
@@ -1288,6 +1361,15 @@ async function handlePageSnap(
 				console.log("Sidebar not available, summary stored locally");
 			}
 
+			// Also try to send REFRESH_SIDEBAR message as fallback
+			try {
+				await chrome.runtime.sendMessage({
+					type: "REFRESH_SIDEBAR",
+				});
+			} catch (e) {
+				// Ignore if no listeners
+			}
+
 			// Show notification
 			await showToastNotification(
 				"Page Snapped",
@@ -1419,15 +1501,26 @@ async function handleAddSelectedTextSummarized(selectedText, url, title) {
 			const updatedSummaries = [...existingSummaries, summaryData];
 			await saveSummariesToIndexedDB(updatedSummaries);
 
-			// Try to notify sidebar if open
+			// Try to notify sidebar if open - send to all listeners
 			try {
 				await chrome.runtime.sendMessage({
 					type: "NEW_SUMMARY",
 					...summaryData,
 				});
 			} catch (e) {
-				// Sidebar not open - that's fine, data is stored
-				console.log("Sidebar not available, summary stored locally");
+				// Sidebar not open or not listening - that's fine, data is stored
+				console.log(
+					"Sidebar not available for NEW_SUMMARY message, summary stored locally"
+				);
+			}
+
+			// Also try to send REFRESH_SIDEBAR message as fallback
+			try {
+				await chrome.runtime.sendMessage({
+					type: "REFRESH_SIDEBAR",
+				});
+			} catch (e) {
+				// Ignore if no listeners
 			}
 
 			// Show notification
@@ -1519,6 +1612,15 @@ async function handleExplainSelectedText(selectedText, url, title) {
 				);
 			}
 
+			// Also try to send REFRESH_SIDEBAR message as fallback
+			try {
+				await chrome.runtime.sendMessage({
+					type: "REFRESH_SIDEBAR",
+				});
+			} catch (e) {
+				// Ignore if no listeners
+			}
+
 			// Show notification
 			await showAiInsightNotification("explained", summaryTitle);
 
@@ -1606,6 +1708,15 @@ async function handleSimplifySelectedText(selectedText, url, title) {
 				console.log(
 					"Sidebar not available, simplified text stored locally"
 				);
+			}
+
+			// Also try to send REFRESH_SIDEBAR message as fallback
+			try {
+				await chrome.runtime.sendMessage({
+					type: "REFRESH_SIDEBAR",
+				});
+			} catch (e) {
+				// Ignore if no listeners
 			}
 
 			// Show notification

@@ -246,17 +246,44 @@ function getArticleText() {
 }
 
 // Load settings from storage
-chrome.storage.sync.get(
-	["summaryType", "autoSnapEnabled", "autoSnapDuration"],
-	(result) => {
-		const validTypes = ["key-points", "headline", "teaser"];
-		summaryType = validTypes.includes(result.summaryType)
-			? result.summaryType
-			: "teaser";
-		autoSnapEnabled = result.autoSnapEnabled || false;
-		autoSnapDuration = parseInt(result.autoSnapDuration) || 15;
+async function loadSettings() {
+	return new Promise((resolve) => {
+		chrome.storage.sync.get(
+			["summaryType", "autoSnapEnabled", "autoSnapDuration"],
+			(result) => {
+				const validTypes = ["key-points", "headline", "teaser"];
+				summaryType = validTypes.includes(result.summaryType)
+					? result.summaryType
+					: "teaser";
+				autoSnapEnabled = result.autoSnapEnabled || false;
+				autoSnapDuration = parseInt(result.autoSnapDuration) || 15;
+
+				console.log("Settings loaded:", {
+					summaryType,
+					autoSnapEnabled,
+					autoSnapDuration,
+				});
+				resolve();
+			}
+		);
+	});
+}
+
+// Initialize settings and start functionality
+async function initializeContentScript() {
+	await loadSettings();
+
+	// Start auto-snap tracking if enabled
+	if (autoSnapEnabled) {
+		console.log("Auto-snap enabled, starting activity tracking");
+		trackUserActivity();
+	} else {
+		console.log("Auto-snap disabled");
 	}
-);
+}
+
+// Load settings from storage
+loadSettings();
 
 async function isSummarizerAvailable() {
 	if (!("Summarizer" in self)) return false;
@@ -420,13 +447,49 @@ async function checkAndSummarize() {
 }
 
 // Listen for settings changes
-chrome.storage.onChanged.addListener((changes) => {
+chrome.storage.onChanged.addListener(async (changes) => {
 	if (!chrome.runtime || !chrome.runtime.sendMessage) {
 		return; // Extension context invalidated
 	}
 
+	let settingsChanged = false;
+
 	if (changes.summaryType) {
 		summaryType = changes.summaryType.newValue;
+		settingsChanged = true;
+	}
+
+	if (changes.autoSnapEnabled) {
+		autoSnapEnabled = changes.autoSnapEnabled.newValue;
+		settingsChanged = true;
+
+		// Start or stop activity tracking based on new setting
+		if (autoSnapEnabled) {
+			console.log("Auto-snap enabled via settings change");
+			trackUserActivity();
+		} else {
+			console.log("Auto-snap disabled via settings change");
+			clearTimeout(autoSnapTimer);
+			autoSnapTimer = null;
+		}
+	}
+
+	if (changes.autoSnapDuration) {
+		autoSnapDuration = parseInt(changes.autoSnapDuration.newValue) || 15;
+		settingsChanged = true;
+
+		// Restart timer with new duration if currently active
+		if (autoSnapEnabled && pageActivityStartTime) {
+			trackUserActivity();
+		}
+	}
+
+	if (settingsChanged) {
+		console.log("Settings updated:", {
+			summaryType,
+			autoSnapEnabled,
+			autoSnapDuration,
+		});
 	}
 });
 
@@ -585,6 +648,11 @@ if (summarizationEnabled) {
 	});
 }
 
+// Initialize content script
+initializeContentScript().catch((e) => {
+	console.error("Content script initialization failed:", e);
+});
+
 // Handle page snap - summarize the entire page
 async function handlePageSnap(requestedSummaryType) {
 	try {
@@ -739,22 +807,22 @@ function isPageAppropriateForAutoSnap() {
 			.split(/\s+/)
 			.filter((word) => word.length > 0).length;
 
-		if (wordCount < 100) {
+		if (wordCount < 5) {
 			console.log(
 				"Skipping auto-snap: page too short (less than 100 words)"
 			);
 			return false;
 		}
 
-		// Skip pages with mostly non-text content (e.g., image galleries, videos)
+		/* // Skip pages with mostly non-text content (e.g., image galleries, videos)
 		const textToTotalRatio =
 			bodyText.length / (document.body.innerHTML.length || 1);
-		if (textToTotalRatio < 0.1) {
+		if (textToTotalRatio < 0.001) {
 			console.log(
 				"Skipping auto-snap: page appears to be mostly non-text content"
 			);
 			return false;
-		}
+		} */
 
 		// Skip error pages
 		const errorKeywords = [

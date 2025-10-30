@@ -13,10 +13,16 @@
 		<div id="sidebar">
 			<div id="controls">
 				<div id="generation-controls">
-					<button id="toggle-generation-btn">
-						<span class="material-icons">play_arrow</span>
-						<span>Start PagePulse</span>
-					</button>
+					<div id="toggle-container">
+						<button id="toggle-generation-btn">
+							<span class="material-icons">play_arrow</span>
+							<span>Start PagePulse</span>
+						</button>
+						<div id="processing-counter" style="display: none">
+							<span class="material-icons">sync</span>
+							<span id="processing-count">0</span>
+						</div>
+					</div>
 					<button id="stop-all-btn">
 						<span class="material-icons">stop</span>
 						<span>Stop All</span>
@@ -56,6 +62,7 @@
 			<span class="material-icons">visibility</span>
 			<span>View All</span>
 		</button>
+		<script src="toast.js" type="module"></script>
 		<script src="sidebar.js" type="module"></script>
 	</body>
 </html>

@@ -19,12 +19,96 @@ function loadScript(src) {
 	});
 }
 
+// IndexedDB setup for analytics storage
+let analyticsDbPromise = null;
+
+function initAnalyticsIndexedDB() {
+	if (analyticsDbPromise) return analyticsDbPromise;
+
+	analyticsDbPromise = new Promise((resolve, reject) => {
+		const request = indexedDB.open("DoomDigestAnalyticsDB", 1);
+
+		request.onerror = () => reject(request.error);
+		request.onsuccess = () => resolve(request.result);
+
+		request.onupgradeneeded = (event) => {
+			const db = event.target.result;
+
+			// Create analytics store if it doesn't exist
+			if (!db.objectStoreNames.contains("analytics")) {
+				const store = db.createObjectStore("analytics", {
+					keyPath: "id",
+					autoIncrement: true,
+				});
+				store.createIndex("generatedAt", "generatedAt", {
+					unique: false,
+				});
+				store.createIndex("timeFilter", "timeFilter", {
+					unique: false,
+				});
+			}
+		};
+	});
+
+	return analyticsDbPromise;
+}
+
+// Save analytics to IndexedDB
+async function saveAnalyticsToIndexedDB(analyticsData) {
+	try {
+		const db = await initAnalyticsIndexedDB();
+		const transaction = db.transaction(["analytics"], "readwrite");
+		const store = transaction.objectStore("analytics");
+
+		await new Promise((resolve, reject) => {
+			const addRequest = store.add(analyticsData);
+			addRequest.onsuccess = () => resolve();
+			addRequest.onerror = () => reject(addRequest.error);
+		});
+
+		return { success: true };
+	} catch (error) {
+		console.error("Error saving analytics to IndexedDB:", error);
+		return { success: false, error: error.message };
+	}
+}
+
+// Load analytics from IndexedDB
+async function loadAnalyticsFromIndexedDB() {
+	try {
+		const db = await initAnalyticsIndexedDB();
+		const transaction = db.transaction(["analytics"], "readonly");
+		const store = transaction.objectStore("analytics");
+
+		return new Promise((resolve, reject) => {
+			const request = store.getAll();
+			request.onsuccess = () => {
+				const analytics = request.result || [];
+				resolve(analytics);
+			};
+			request.onerror = () => reject(request.error);
+		});
+	} catch (error) {
+		console.error("Error loading analytics from IndexedDB:", error);
+		return [];
+	}
+}
+
 document.addEventListener("DOMContentLoaded", async function () {
 	await loadComponents();
 
 	// Mark analytics page as ready
 	markAnalyticsReady();
-	const backToSettingsBtn = document.getElementById("back-to-settings");
+
+	// Restore analytics generation state if it exists
+	chrome.storage.local.get(["analyticsGenerationState"], (result) => {
+		if (
+			result.analyticsGenerationState &&
+			result.analyticsGenerationState.isGenerating
+		) {
+			showLoadingOverlay(result.analyticsGenerationState.message);
+		}
+	});
 	const timePeriodSelect = document.getElementById("time-period");
 	const dateRangeDiv = document.getElementById("date-range");
 	const startDateInput = document.getElementById("start-date");
@@ -58,10 +142,10 @@ document.addEventListener("DOMContentLoaded", async function () {
 	const outputFormat = document.getElementById("output-format");
 	const customPrompt = document.getElementById("custom-prompt");
 
-	// Navigation
-	backToSettingsBtn.addEventListener("click", () => {
-		window.location.href = "settings.html";
-	});
+	// Navigation is handled by navigation.js
+	// backToSettingsBtn.addEventListener("click", () => {
+	// 	window.location.href = "settings.html";
+	// });
 
 	// Time period handling
 	timePeriodSelect.addEventListener("change", () => {
@@ -96,9 +180,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 
 	// Generate analytics
 	generateAnalyticsBtn.addEventListener("click", () => generateAnalytics());
-
-	// Save analytics
-	saveAnalyticsBtn.addEventListener("click", () => saveAnalyticsReport());
 
 	// Export analytics
 	exportAnalyticsBtn.addEventListener("click", () => exportAnalyticsReport());
@@ -140,8 +221,8 @@ document.addEventListener("DOMContentLoaded", async function () {
 		}
 	});
 
-	// Load saved reports on page load
-	loadSavedReports();
+	// Load auto-saved reports on page load
+	loadAutoSavedReports();
 
 	async function generateAnalytics() {
 		try {
@@ -203,6 +284,28 @@ document.addEventListener("DOMContentLoaded", async function () {
 					generatedAt: new Date().toISOString(),
 					summaryCount: summaries.length,
 				};
+
+				// Auto-save analytics to IndexedDB
+				const analyticsData = {
+					content: analyticsResponse.analytics,
+					timeFilter: timeFilter,
+					customization: customization,
+					generatedAt: new Date().toISOString(),
+					summaryCount: summaries.length,
+					autoSaved: true,
+					savedAt: new Date().toISOString(),
+				};
+
+				saveAnalyticsToIndexedDB(analyticsData)
+					.then(() => {
+						console.log("Analytics auto-saved to IndexedDB");
+					})
+					.catch((error) => {
+						console.error(
+							"Error auto-saving analytics to IndexedDB:",
+							error
+						);
+					});
 
 				// Scroll to results
 				analyticsResults.scrollIntoView({ behavior: "smooth" });
@@ -294,72 +397,9 @@ document.addEventListener("DOMContentLoaded", async function () {
 		}
 	}
 
-	async function saveAnalyticsReport() {
-		if (!window.currentAnalytics) {
-			toast.error(
-				"No analytics report to save. Generate analytics first."
-			);
-			return;
-		}
-
+	async function loadAutoSavedReports() {
 		try {
-			const reportName = prompt(
-				"Enter a name for this analytics report:",
-				`Analytics Report - ${new Date().toLocaleDateString()}`
-			);
-
-			if (!reportName || reportName.trim() === "") {
-				return;
-			}
-
-			const report = {
-				id: Date.now().toString(),
-				name: reportName.trim(),
-				content: window.currentAnalytics.content,
-				timeFilter: window.currentAnalytics.timeFilter,
-				customization: window.currentAnalytics.customization,
-				generatedAt: window.currentAnalytics.generatedAt,
-				summaryCount: window.currentAnalytics.summaryCount,
-				savedAt: new Date().toISOString(),
-			};
-
-			// Get existing saved reports
-			const result = await chrome.storage.sync.get([
-				"savedAnalyticsReports",
-			]);
-			const savedReports = result.savedAnalyticsReports || [];
-
-			// Add new report
-			savedReports.unshift(report); // Add to beginning
-
-			// Keep only last 10 reports
-			if (savedReports.length > 10) {
-				savedReports.splice(10);
-			}
-
-			// Save back to storage
-			await chrome.storage.sync.set({
-				savedAnalyticsReports: savedReports,
-			});
-
-			// Refresh saved reports list
-			loadSavedReports();
-
-			toast.success(
-				`Analytics report "${reportName}" saved successfully!`
-			);
-		} catch (error) {
-			console.error("Error saving analytics report:", error);
-			toast.error("Failed to save analytics report: " + error.message);
-		}
-	}
-
-	async function loadSavedReports() {
-		try {
-			const result = await chrome.storage.sync.get([
-				"savedAnalyticsReports",
-			]);
-			const savedReports = result.savedAnalyticsReports || [];
+			const savedReports = await loadAnalyticsFromIndexedDB();
 
 			if (savedReports.length === 0) {
 				savedAnalytics.style.display = "none";
@@ -378,7 +418,9 @@ document.addEventListener("DOMContentLoaded", async function () {
 				info.className = "saved-item-info";
 
 				const title = document.createElement("h4");
-				title.textContent = report.name;
+				title.textContent = `Auto-saved Report - ${new Date(
+					report.generatedAt
+				).toLocaleDateString()}`;
 
 				const meta = document.createElement("div");
 				meta.className = "saved-item-meta";
@@ -386,9 +428,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 					report.summaryCount
 				} summaries • Generated ${new Date(
 					report.generatedAt
-				).toLocaleDateString()} • Saved ${new Date(
-					report.savedAt
-				).toLocaleDateString()}`;
+				).toLocaleString()}`;
 
 				info.appendChild(title);
 				info.appendChild(meta);
@@ -403,20 +443,10 @@ document.addEventListener("DOMContentLoaded", async function () {
 				viewBtn.innerHTML =
 					'<span class="material-icons" style="font-size: 16px; vertical-align: middle;">visibility</span> View';
 				viewBtn.addEventListener("click", () =>
-					loadSavedReport(report.id)
-				);
-
-				const deleteBtn = document.createElement("button");
-				deleteBtn.className = "btn-secondary";
-				deleteBtn.type = "button";
-				deleteBtn.innerHTML =
-					'<span class="material-icons" style="font-size: 16px; vertical-align: middle;">delete</span> Delete';
-				deleteBtn.addEventListener("click", () =>
-					deleteSavedReport(report.id)
+					loadAutoSavedReport(report.id)
 				);
 
 				actions.appendChild(viewBtn);
-				actions.appendChild(deleteBtn);
 
 				item.appendChild(info);
 				item.appendChild(actions);
@@ -424,22 +454,21 @@ document.addEventListener("DOMContentLoaded", async function () {
 				savedReportsList.appendChild(item);
 			});
 		} catch (error) {
-			console.error("Error loading saved reports:", error);
+			console.error("Error loading auto-saved reports:", error);
 		}
 	}
 
-	// Global functions for saved report actions
-	window.loadSavedReport = async function (reportId) {
+	// Global functions for auto-saved report actions
+	window.loadAutoSavedReport = async function (reportId) {
 		try {
-			const result = await chrome.storage.sync.get([
-				"savedAnalyticsReports",
-			]);
-			const savedReports = result.savedAnalyticsReports || [];
+			const savedReports = await loadAnalyticsFromIndexedDB();
 			const report = savedReports.find((r) => r.id === reportId);
 
 			if (report) {
 				// Populate modal with report data
-				modalTitle.textContent = report.name;
+				modalTitle.textContent = `Auto-saved Report - ${new Date(
+					report.generatedAt
+				).toLocaleDateString()}`;
 				modalGeneratedDate.textContent = `Generated: ${new Date(
 					report.generatedAt
 				).toLocaleString()}`;
@@ -450,11 +479,10 @@ document.addEventListener("DOMContentLoaded", async function () {
 				document.body.style.overflow = "hidden"; // Prevent background scrolling
 			}
 		} catch (error) {
-			console.error("Error loading saved report:", error);
-			toast.error("Failed to load saved report: " + error.message);
+			console.error("Error loading auto-saved report:", error);
+			toast.error("Failed to load auto-saved report: " + error.message);
 		}
 	};
-
 	function closeModal() {
 		reportModal.style.display = "none";
 		document.body.style.overflow = ""; // Restore scrolling
@@ -476,33 +504,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 		const html = marked.parse(md, { breaks: true, gfm: true });
 		return DOMPurify.sanitize(html);
 	}
-
-	window.deleteSavedReport = async function (reportId) {
-		try {
-			const result = await chrome.storage.sync.get([
-				"savedAnalyticsReports",
-			]);
-			const savedReports = result.savedAnalyticsReports || [];
-
-			// Remove the report
-			const updatedReports = savedReports.filter(
-				(r) => r.id !== reportId
-			);
-
-			// Save back to storage
-			await chrome.storage.sync.set({
-				savedAnalyticsReports: updatedReports,
-			});
-
-			// Refresh the list
-			loadSavedReports();
-
-			toast.success("Analytics report deleted successfully!");
-		} catch (error) {
-			console.error("Error deleting saved report:", error);
-			toast.error("Failed to delete analytics report: " + error.message);
-		}
-	};
 
 	async function exportAnalyticsReport() {
 		if (!window.currentAnalytics) {
@@ -637,6 +638,11 @@ ${window.currentAnalytics.content}
 			</div>
 		`;
 		document.body.appendChild(overlay);
+
+		// Save analytics generation state
+		chrome.storage.local.set({
+			analyticsGenerationState: { isGenerating: true, message: message },
+		});
 	}
 
 	function hideLoadingOverlay() {
@@ -644,6 +650,9 @@ ${window.currentAnalytics.content}
 		if (overlay) {
 			overlay.remove();
 		}
+
+		// Clear analytics generation state
+		chrome.storage.local.remove(["analyticsGenerationState"]);
 	}
 
 	// Auto-run analytics functions

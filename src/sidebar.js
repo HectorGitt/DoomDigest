@@ -21,6 +21,10 @@ function showLoading(message = "Processing...") {
 		loadingElement.textContent = message;
 		loadingElement.style.display = "block";
 		isLoading = true;
+		// Save loading state to storage
+		chrome.storage.local.set({
+			sidebarLoadingState: { isLoading: true, message: message },
+		});
 	}
 }
 
@@ -29,6 +33,8 @@ function hideLoading() {
 	if (loadingElement) {
 		loadingElement.style.display = "none";
 		isLoading = false;
+		// Clear loading state from storage
+		chrome.storage.local.remove(["sidebarLoadingState"]);
 	}
 }
 
@@ -147,11 +153,28 @@ function updateToggleButton(isActive, isReady = false) {
 	}
 }
 
+// Helper function to update processing counter
+function updateProcessingCounter(count) {
+	const counter = document.getElementById("processing-counter");
+	const countSpan = document.getElementById("processing-count");
+
+	if (count > 0) {
+		countSpan.textContent = count;
+		counter.style.display = "flex";
+	} else {
+		counter.style.display = "none";
+	}
+}
+
 // Helper function to update View All button with total count
-function updateViewAllButton(totalCount) {
+function updateViewAllButton(count) {
+	const viewAllBtn = document.getElementById("view-all-btn");
 	const textSpan = viewAllBtn.querySelector("span:last-child");
-	if (textSpan) {
-		textSpan.textContent = `View All (${totalCount})`;
+
+	if (count > 0) {
+		textSpan.textContent = `View All (${count})`;
+	} else {
+		textSpan.textContent = "View All";
 	}
 }
 
@@ -658,29 +681,42 @@ chrome.storage.sync.get(
 		// Update auto snap button state
 		updateAutoSnapButton(result.autoSnapEnabled || false);
 
-		// Load saved summaries from IndexedDB
-		loadSummariesFromIndexedDB()
-			.then((loadedSummaries) => {
-				summaries = loadedSummaries || [];
-				renderGroupedSummaries();
-				updateViewAllButton(summaries.length);
-				updateStatus();
+		// Restore loading state if it exists
+		chrome.storage.local.get(["sidebarLoadingState"], (localResult) => {
+			if (
+				localResult.sidebarLoadingState &&
+				localResult.sidebarLoadingState.isLoading
+			) {
+				showLoading(localResult.sidebarLoadingState.message);
+			}
 
-				// Mark sidebar as ready and update button
-				isSidebarReady = true;
-				updateToggleButton(isGenerationActive, isSidebarReady);
-			})
-			.catch((error) => {
-				console.error("Error loading summaries from IndexedDB:", error);
-				summaries = [];
-				renderGroupedSummaries();
-				updateViewAllButton(0);
-				updateStatus();
+			// Load saved summaries from IndexedDB
+			loadSummariesFromIndexedDB()
+				.then((loadedSummaries) => {
+					summaries = loadedSummaries || [];
+					renderGroupedSummaries();
+					updateViewAllButton(summaries.length);
+					updateStatus();
 
-				// Still mark as ready even on error
-				isSidebarReady = true;
-				updateToggleButton(isGenerationActive, isSidebarReady);
-			});
+					// Mark sidebar as ready and update button
+					isSidebarReady = true;
+					updateToggleButton(isGenerationActive, isSidebarReady);
+				})
+				.catch((error) => {
+					console.error(
+						"Error loading summaries from IndexedDB:",
+						error
+					);
+					summaries = [];
+					renderGroupedSummaries();
+					updateViewAllButton(0);
+					updateStatus();
+
+					// Still mark as ready even on error
+					isSidebarReady = true;
+					updateToggleButton(isGenerationActive, isSidebarReady);
+				});
+		});
 	}
 );
 
@@ -743,6 +779,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 
 			// Reset active summarizations counter
 			activeSummarizations = 0;
+			updateProcessingCounter(activeSummarizations);
 			isGenerationActive = false;
 			updateToggleButton(false, isSidebarReady);
 			renderGroupedSummaries();
@@ -765,10 +802,17 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			}
 
 			if (!canProceed) {
+				// Show error message and open settings
+				console.error("AI not available for page pulse");
+				if (window.showToast) {
+					window.showToast(
+						"AI not available. Please configure API in settings.",
+						"error"
+					);
+				}
 				showSettingsButton(
 					"AI not available. Please configure API in settings."
 				);
-				toggleGenerationBtn.disabled = false;
 				return;
 			}
 
@@ -817,6 +861,7 @@ stopAllBtn.addEventListener("click", async () => {
 
 		// Reset active summarizations counter and local state
 		activeSummarizations = 0;
+		updateProcessingCounter(activeSummarizations);
 		isGenerationActive = false;
 		allowNewGenerations = false;
 		updateToggleButton(false, isSidebarReady);
@@ -899,6 +944,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 	if (msg.type === "NEW_SUMMARY") {
 		// Decrement active summarizations count
 		activeSummarizations = Math.max(0, activeSummarizations - 1);
+		updateProcessingCounter(activeSummarizations);
 
 		// Clear loading state if no more active summarizations
 		if (activeSummarizations === 0) {
@@ -934,6 +980,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 	} else if (msg.type === "SUMMARIZING_START") {
 		// Increment active summarizations count
 		activeSummarizations++;
+		updateProcessingCounter(activeSummarizations);
 
 		// Re-render to show loading state
 		renderGroupedSummaries();
