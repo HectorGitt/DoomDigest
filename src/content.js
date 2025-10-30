@@ -249,11 +249,11 @@ function getArticleText() {
 async function loadSettings() {
 	return new Promise((resolve) => {
 		chrome.storage.sync.get(
-			["summaryType", "autoSnapEnabled", "autoSnapDuration"],
+			["defaultSummaryType", "autoSnapEnabled", "autoSnapDuration"],
 			(result) => {
 				const validTypes = ["key-points", "headline", "teaser"];
-				summaryType = validTypes.includes(result.summaryType)
-					? result.summaryType
+				summaryType = validTypes.includes(result.defaultSummaryType)
+					? result.defaultSummaryType
 					: "teaser";
 				autoSnapEnabled = result.autoSnapEnabled || false;
 				autoSnapDuration = parseInt(result.autoSnapDuration) || 15;
@@ -454,8 +454,11 @@ chrome.storage.onChanged.addListener(async (changes) => {
 
 	let settingsChanged = false;
 
-	if (changes.summaryType) {
-		summaryType = changes.summaryType.newValue;
+	if (changes.defaultSummaryType) {
+		const validTypes = ["key-points", "headline", "teaser"];
+		summaryType = validTypes.includes(changes.defaultSummaryType.newValue)
+			? changes.defaultSummaryType.newValue
+			: "teaser";
 		settingsChanged = true;
 	}
 

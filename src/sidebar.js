@@ -816,10 +816,14 @@ toggleGenerationBtn.addEventListener("click", async () => {
 				return;
 			}
 
+			// Load default summary type from settings
+			const settings = await chrome.storage.sync.get(["defaultSummaryType"]);
+			const summaryType = settings.defaultSummaryType || "teasers";
+
 			// Start generation
 			chrome.tabs.sendMessage(tab.id, {
 				type: "START_SUMMARIZATION",
-				summaryType: "teasers", // Default summary type
+				summaryType: summaryType,
 				processedContentHashes: Array.from(processedContentHashes),
 			});
 

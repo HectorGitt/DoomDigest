@@ -1468,10 +1468,14 @@ async function handleAddSelectedTextSummarized(selectedText, url, title) {
 				? selectedText.slice(0, 50) + "..."
 				: selectedText);
 
+		// Load default summary type from settings
+		const settings = await chrome.storage.sync.get(["defaultSummaryType"]);
+		const summaryType = settings.defaultSummaryType || "teasers";
+
 		// Summarize the selected text
 		const summary = await summarizeText(
 			selectedText.slice(0, 2000),
-			"teaser"
+			summaryType
 		);
 
 		if (summary) {
