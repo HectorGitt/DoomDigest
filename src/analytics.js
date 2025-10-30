@@ -73,6 +73,34 @@ async function saveAnalyticsToIndexedDB(analyticsData) {
 	}
 }
 
+// Clean up empty analytics reports from IndexedDB
+async function cleanupEmptyAnalyticsReports(allReports, validReports) {
+	try {
+		const validIds = new Set(validReports.map((r) => r.id));
+		const emptyReports = allReports.filter((r) => !validIds.has(r.id));
+
+		if (emptyReports.length === 0) return;
+
+		const db = await initAnalyticsIndexedDB();
+		const transaction = db.transaction(["analytics"], "readwrite");
+		const store = transaction.objectStore("analytics");
+
+		for (const report of emptyReports) {
+			await new Promise((resolve, reject) => {
+				const deleteRequest = store.delete(report.id);
+				deleteRequest.onsuccess = () => resolve();
+				deleteRequest.onerror = () => reject(deleteRequest.error);
+			});
+		}
+
+		console.log(
+			`Cleaned up ${emptyReports.length} empty analytics reports from IndexedDB`
+		);
+	} catch (error) {
+		console.error("Error cleaning up empty analytics reports:", error);
+	}
+}
+
 // Load analytics from IndexedDB
 async function loadAnalyticsFromIndexedDB() {
 	try {
@@ -83,8 +111,26 @@ async function loadAnalyticsFromIndexedDB() {
 		return new Promise((resolve, reject) => {
 			const request = store.getAll();
 			request.onsuccess = () => {
-				const analytics = request.result || [];
-				resolve(analytics);
+				let analytics = request.result || [];
+
+				// Filter out empty or invalid analytics
+				const validAnalytics = analytics.filter((report) => {
+					const content = report.content?.trim();
+					return content && content.length > 100; // Must have substantial content
+				});
+
+				// If we filtered out some reports, clean them up
+				if (validAnalytics.length !== analytics.length) {
+					console.log(
+						`Filtered out ${
+							analytics.length - validAnalytics.length
+						} empty/invalid analytics reports`
+					);
+					// Clean up empty reports in the background
+					cleanupEmptyAnalyticsReports(analytics, validAnalytics);
+				}
+
+				resolve(validAnalytics);
 			};
 			request.onerror = () => reject(request.error);
 		});
@@ -205,9 +251,15 @@ document.addEventListener("DOMContentLoaded", async function () {
 	// Handle messages from background script
 	chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 		if (message.type === "ANALYTICS_SYNC_COMPLETED") {
+			console.log("Received ANALYTICS_SYNC_COMPLETED:", message);
 			if (message.result && message.result.success) {
-				toast.success(message.result.message);
+				console.log("Sync success message:", message.result.message);
+				toast.success(
+					message.result.message ||
+						"Successfully synced analytics to Google Drive!"
+				);
 			} else {
+				console.log("Sync error:", message.result?.error);
 				toast.error(
 					message.result?.error ||
 						"Failed to sync analytics to Google Drive"
@@ -269,6 +321,31 @@ document.addEventListener("DOMContentLoaded", async function () {
 			hideLoadingOverlay();
 
 			if (analyticsResponse.success) {
+				console.log("Analytics generation successful:", {
+					analyticsLength: analyticsResponse.analytics?.length || 0,
+					analyticsPreview:
+						analyticsResponse.analytics?.substring(0, 200) +
+							"..." || "EMPTY",
+					analyticsType: typeof analyticsResponse.analytics,
+				});
+
+				// Validate analytics content is not empty
+				const analyticsContentText =
+					analyticsResponse.analytics?.trim();
+				if (
+					!analyticsContentText ||
+					analyticsContentText.length === 0
+				) {
+					console.error(
+						"Analytics generation returned empty content"
+					);
+					toast.error(
+						"Analytics generation failed: No content was generated. Please try again."
+					);
+					hideLoadingOverlay();
+					return;
+				}
+
 				// Display results (render markdown to HTML for readability)
 				analyticsContent.innerHTML = renderMarkdownToHtml(
 					analyticsResponse.analytics
@@ -285,7 +362,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 					summaryCount: summaries.length,
 				};
 
-				// Auto-save analytics to IndexedDB
+				// Auto-save analytics to IndexedDB only if content is valid
 				const analyticsData = {
 					content: analyticsResponse.analytics,
 					timeFilter: timeFilter,
@@ -296,9 +373,19 @@ document.addEventListener("DOMContentLoaded", async function () {
 					savedAt: new Date().toISOString(),
 				};
 
+				console.log("Saving analytics data to IndexedDB:", {
+					contentLength: analyticsData.content?.length || 0,
+					contentPreview:
+						analyticsData.content?.substring(0, 100) + "..." ||
+						"EMPTY",
+					summaryCount: analyticsData.summaryCount,
+				});
+
 				saveAnalyticsToIndexedDB(analyticsData)
 					.then(() => {
 						console.log("Analytics auto-saved to IndexedDB");
+						// Reload auto-saved reports to show the new one
+						loadAutoSavedReports();
 					})
 					.catch((error) => {
 						console.error(
@@ -465,6 +552,16 @@ document.addEventListener("DOMContentLoaded", async function () {
 			const report = savedReports.find((r) => r.id === reportId);
 
 			if (report) {
+				console.log("Loading auto-saved report:", {
+					reportId: reportId,
+					reportFound: true,
+					contentLength: report.content?.length || 0,
+					contentPreview:
+						report.content?.substring(0, 200) + "..." || "EMPTY",
+					generatedAt: report.generatedAt,
+					summaryCount: report.summaryCount,
+				});
+
 				// Populate modal with report data
 				modalTitle.textContent = `Auto-saved Report - ${new Date(
 					report.generatedAt
@@ -477,6 +574,8 @@ document.addEventListener("DOMContentLoaded", async function () {
 				// Show modal
 				reportModal.style.display = "block";
 				document.body.style.overflow = "hidden"; // Prevent background scrolling
+			} else {
+				console.log("Report not found:", reportId);
 			}
 		} catch (error) {
 			console.error("Error loading auto-saved report:", error);
@@ -594,23 +693,25 @@ ${window.currentAnalytics.content}
 			syncAnalyticsDriveBtn.innerHTML =
 				'<span class="material-icons" style="font-size: 18px; vertical-align: middle;">cloud_upload</span> Syncing...';
 
+			// Show initial feedback
+			toast.info("Starting sync to Google Drive...");
+
+			console.log("Sending analytics to sync:", window.currentAnalytics);
+
 			// Send sync request to background script
 			const response = await chrome.runtime.sendMessage({
 				type: "SYNC_ANALYTICS_TO_GOOGLE_DRIVE",
 				analytics: window.currentAnalytics,
 			});
 
-			if (response.success) {
-				toast.success(response.message);
-			} else {
-				toast.error(
-					response.error || "Failed to sync analytics to Google Drive"
-				);
-			}
+			console.log("Sync response:", response);
+
+			// Don't show toast here - let the message listener handle it
+			// The actual result will come via ANALYTICS_SYNC_COMPLETED message
 		} catch (error) {
 			console.error("Analytics sync failed:", error);
 			toast.error("Failed to sync analytics: " + error.message);
-		} finally {
+			// Re-enable button on error
 			syncAnalyticsDriveBtn.disabled = false;
 			syncAnalyticsDriveBtn.innerHTML =
 				'<span class="material-icons" style="font-size: 18px; vertical-align: middle;">cloud_upload</span> Sync to Drive';
@@ -634,10 +735,21 @@ ${window.currentAnalytics.content}
 		overlay.innerHTML = `
 			<div class="loading-content">
 				<div class="spinner"></div>
-				<p style="margin: 0; color: #374151; font-size: 16px;">${message}</p>
+				<p style="margin: 0 0 16px 0; color: #374151; font-size: 16px;">${message}</p>
+				<button id="cancel-loading" class="btn-secondary" style="padding: 8px 16px; font-size: 14px;">
+					<span class="material-icons" style="font-size: 16px; vertical-align: middle; margin-right: 4px;">cancel</span>
+					Cancel
+				</button>
 			</div>
 		`;
 		document.body.appendChild(overlay);
+
+		// Add cancel button event listener
+		const cancelBtn = overlay.querySelector("#cancel-loading");
+		cancelBtn.addEventListener("click", () => {
+			hideLoadingOverlay();
+			toast.info("Analytics generation cancelled");
+		});
 
 		// Save analytics generation state
 		chrome.storage.local.set({

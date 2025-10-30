@@ -759,8 +759,13 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 		return true; // Keep message channel open for async response
 	} else if (request.type === "GENERATE_CUSTOM_ANALYTICS") {
 		// Handle custom analytics generation request from analytics page
+		console.log("Received GENERATE_CUSTOM_ANALYTICS request", {
+			summariesCount: request.summaries?.length,
+			customization: request.customization,
+		});
 		handleGenerateCustomAnalytics(request.summaries, request.customization)
 			.then((analytics) => {
+				console.log("GENERATE_CUSTOM_ANALYTICS completed successfully");
 				sendResponse({ success: true, analytics: analytics });
 			})
 			.catch((error) => {
@@ -1791,12 +1796,20 @@ async function handleGenerateCustomAnalytics(summaries, customization) {
 			"geminiApiTested",
 		]);
 
+		console.log("Analytics generation - API settings:", {
+			apiProvider: settings.apiProvider,
+			hasGeminiKey: !!settings.geminiApiKey,
+			geminiTested: settings.geminiApiTested,
+		});
+
 		const provider = settings.apiProvider || "chrome-ai";
 
 		// Try Chrome AI Prompt API first if Chrome AI is selected
 		if (provider === "chrome-ai") {
 			try {
+				console.log("Trying Chrome AI LanguageModel...");
 				if ("LanguageModel" in self) {
+					console.log("LanguageModel available, creating session...");
 					const session = await LanguageModel.create({
 						monitor(m) {
 							m.addEventListener("downloadprogress", (e) => {
@@ -1809,9 +1822,15 @@ async function handleGenerateCustomAnalytics(summaries, customization) {
 						summaries,
 						customization
 					);
+					console.log(
+						"Analytics prompt created, length:",
+						promptText.length
+					);
 					const result = await session.prompt(promptText);
-
+					console.log("Chrome AI analytics generation successful");
 					return result;
+				} else {
+					console.log("LanguageModel not available in self");
 				}
 			} catch (error) {
 				console.warn(
@@ -1822,7 +1841,9 @@ async function handleGenerateCustomAnalytics(summaries, customization) {
 		}
 
 		// Fallback to Gemini if available
+		console.log("Trying Gemini API fallback...");
 		if (settings.geminiApiTested && settings.geminiApiKey) {
+			console.log("Using tested Gemini API");
 			return await generateCustomAnalyticsWithGemini(
 				summaries,
 				customization
@@ -1830,6 +1851,7 @@ async function handleGenerateCustomAnalytics(summaries, customization) {
 		}
 
 		if (provider === "gemini" && settings.geminiApiKey) {
+			console.log("Using Gemini API (provider set to gemini)");
 			return await generateCustomAnalyticsWithGemini(
 				summaries,
 				customization
@@ -1837,6 +1859,7 @@ async function handleGenerateCustomAnalytics(summaries, customization) {
 		}
 
 		// If no API is available, return error message
+		console.error("No API available for analytics generation");
 		throw new Error(
 			"Analytics generation requires Chrome AI or Gemini API configuration."
 		);
@@ -1947,6 +1970,24 @@ async function generateCustomAnalyticsWithGemini(summaries, customization) {
 		const result = await model.generateContent(prompt);
 		const response = await result.response;
 		const analytics = response.text().trim();
+
+		console.log("Gemini analytics generated:", {
+			analyticsLength: analytics.length,
+			analyticsPreview: analytics.substring(0, 200) + "...",
+			summariesCount: summaries.length,
+			customization: customization,
+		});
+
+		// Validate that we got meaningful content
+		if (!analytics || analytics.length < 100) {
+			console.warn(
+				"Gemini returned insufficient analytics content, length:",
+				analytics.length
+			);
+			throw new Error(
+				"Gemini API returned insufficient content. Please try again."
+			);
+		}
 
 		return analytics;
 	} catch (error) {
