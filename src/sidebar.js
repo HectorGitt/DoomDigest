@@ -817,7 +817,9 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			}
 
 			// Load default summary type from settings
-			const settings = await chrome.storage.sync.get(["defaultSummaryType"]);
+			const settings = await chrome.storage.sync.get([
+				"defaultSummaryType",
+			]);
 			const summaryType = settings.defaultSummaryType || "teasers";
 
 			// Start generation
