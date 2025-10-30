@@ -134,7 +134,7 @@ function updateToggleButton(isActive, isReady = false) {
 		toggleGenerationBtn.className = "ready-mode";
 	} else if (isActive) {
 		iconSpan.textContent = "stop";
-		textSpan.textContent = "Stop All";
+		textSpan.textContent = "Stop Page Pulse";
 		toggleGenerationBtn.className = "stop-mode";
 	} else {
 		iconSpan.textContent = "play_arrow";
