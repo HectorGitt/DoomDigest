@@ -21,7 +21,9 @@ function loadScript(src) {
 
 document.addEventListener("DOMContentLoaded", async function () {
 	await loadComponents();
-	// DOM elements
+
+	// Mark analytics page as ready
+	markAnalyticsReady();
 	const backToSettingsBtn = document.getElementById("back-to-settings");
 	const timePeriodSelect = document.getElementById("time-period");
 	const dateRangeDiv = document.getElementById("date-range");
@@ -775,3 +777,15 @@ ${window.currentAnalytics.content}
 	timePeriodSelect.dispatchEvent(new Event("change"));
 	loadAutoRunSettings();
 });
+
+function markAnalyticsReady() {
+	// Update generate button to show ready state
+	const generateBtn = document.getElementById("generate-analytics");
+	if (generateBtn) {
+		generateBtn.classList.add("ready");
+		generateBtn.innerHTML = `
+			<span class="material-icons" style="font-size: 18px; vertical-align: middle;">analytics</span>
+			Ready to Generate
+		`;
+	}
+}

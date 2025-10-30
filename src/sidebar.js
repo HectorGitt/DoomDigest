@@ -12,6 +12,7 @@ let activeSummarizations = 0; // Track number of active summarizations
 let isGenerationActive = false; // Track if generation is currently active
 let siteGroups = {}; // Group summaries by hostname
 let isLoading = false; // Track loading state
+let isSidebarReady = false; // Track if sidebar is fully loaded
 
 // Loading state management functions
 function showLoading(message = "Processing...") {
@@ -116,11 +117,16 @@ async function loadSummariesFromIndexedDB() {
 }
 
 // Helper function to update toggle button with icon and text
-function updateToggleButton(isActive) {
+function updateToggleButton(isActive, isReady = false) {
 	const iconSpan = toggleGenerationBtn.querySelector(".material-icons");
 	const textSpan = document.createElement("span");
 
-	if (isActive) {
+	if (isReady && !isActive) {
+		// Ready state - show success color when fully loaded
+		iconSpan.textContent = "check_circle";
+		textSpan.textContent = "Start Page Pulse";
+		toggleGenerationBtn.className = "ready-mode";
+	} else if (isActive) {
 		iconSpan.textContent = "stop";
 		textSpan.textContent = "Stop All";
 		toggleGenerationBtn.className = "stop-mode";
@@ -284,14 +290,14 @@ function applyThemeToSidebar(theme) {
       }
 
       #generation-controls button {
-        background: rgba(34, 197, 94, 0.15) !important;
+        background: rgba(34, 159, 197, 0.08) !important;
         color: #22c55e !important;
-        border-color: rgba(34, 197, 94, 0.4) !important;
+        border-color: rgba(0, 0, 0, 0.3) !important;
       }
 
       #generation-controls button:hover:not(:disabled) {
-        background: rgba(34, 197, 94, 0.25) !important;
-        box-shadow: 0 2px 8px rgba(34, 197, 94, 0.3) !important;
+        background: rgba(92, 193, 230, 0.15) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3) !important;
       }
 
       #generation-controls button:disabled {
@@ -301,14 +307,25 @@ function applyThemeToSidebar(theme) {
       }
 
       #generation-controls button.stop-mode {
-        background: rgba(239, 68, 68, 0.15) !important;
-        border-color: rgba(239, 68, 68, 0.4) !important;
+        background: rgba(239, 68, 68, 0.08) !important;
+        border-color: rgba(239, 68, 68, 0.3) !important;
         color: #ef4444 !important;
       }
 
       #generation-controls button.stop-mode:hover:not(:disabled) {
-        background: rgba(239, 68, 68, 0.25) !important;
+        background: rgba(239, 68, 68, 0.15) !important;
         box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3) !important;
+      }
+
+      #generation-controls button.ready-mode {
+        background: rgba(16, 185, 129, 0.3) !important;
+        border-color: rgba(16, 185, 129, 0.6) !important;
+        color: #ffffff !important;
+      }
+
+      #generation-controls button.ready-mode:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.4) !important;
+        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.5) !important;
       }
 
       #status {
@@ -380,13 +397,13 @@ function applyThemeToSidebar(theme) {
       }
 
       #generation-controls button {
-        background: rgba(34, 197, 94, 0.1) !important;
+        background: rgba(34, 197, 94, 0.2) !important;
         color: #16a34a !important;
-        border-color: rgba(34, 197, 94, 0.3) !important;
+        border-color: rgba(34, 197, 94, 0.4) !important;
       }
 
       #generation-controls button:hover:not(:disabled) {
-        background: rgba(34, 197, 94, 0.2) !important;
+        background: rgba(34, 197, 94, 0.3) !important;
         box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3) !important;
       }
 
@@ -397,14 +414,25 @@ function applyThemeToSidebar(theme) {
       }
 
       #generation-controls button.stop-mode {
-        background: rgba(239, 68, 68, 0.15) !important;
+        background: rgba(239, 68, 68, 0.2) !important;
         border-color: rgba(239, 68, 68, 0.4) !important;
         color: #dc2626 !important;
       }
 
       #generation-controls button.stop-mode:hover:not(:disabled) {
-        background: rgba(239, 68, 68, 0.25) !important;
+        background: rgba(239, 68, 68, 0.3) !important;
         box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4) !important;
+      }
+
+      #generation-controls button.ready-mode {
+        background: rgba(16, 185, 129, 0.5) !important;
+        border-color: rgba(16, 185, 129, 0.7) !important;
+        color: #000000 !important;
+      }
+
+      #generation-controls button.ready-mode:hover:not(:disabled) {
+        background: rgba(16, 185, 129, 0.6) !important;
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.6) !important;
       }
 
       #status {
@@ -637,6 +665,10 @@ chrome.storage.sync.get(
 				renderGroupedSummaries();
 				updateViewAllButton(summaries.length);
 				updateStatus();
+
+				// Mark sidebar as ready and update button
+				isSidebarReady = true;
+				updateToggleButton(isGenerationActive, isSidebarReady);
 			})
 			.catch((error) => {
 				console.error("Error loading summaries from IndexedDB:", error);
@@ -644,6 +676,10 @@ chrome.storage.sync.get(
 				renderGroupedSummaries();
 				updateViewAllButton(0);
 				updateStatus();
+
+				// Still mark as ready even on error
+				isSidebarReady = true;
+				updateToggleButton(isGenerationActive, isSidebarReady);
 			});
 	}
 );
@@ -708,7 +744,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			// Reset active summarizations counter
 			activeSummarizations = 0;
 			isGenerationActive = false;
-			updateToggleButton(false);
+			updateToggleButton(false, isSidebarReady);
 			renderGroupedSummaries();
 
 			console.log("Generation stopped");
@@ -744,7 +780,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			});
 
 			isGenerationActive = true;
-			updateToggleButton(true);
+			updateToggleButton(true, isSidebarReady);
 
 			console.log("Starting summarization...");
 		}
@@ -783,7 +819,7 @@ stopAllBtn.addEventListener("click", async () => {
 		activeSummarizations = 0;
 		isGenerationActive = false;
 		allowNewGenerations = false;
-		updateToggleButton(false);
+		updateToggleButton(false, isSidebarReady);
 		renderGroupedSummaries();
 
 		console.log("All generations stopped and new generation disabled");
@@ -869,7 +905,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 			// Reset toggle button if generation is complete
 			if (isGenerationActive) {
 				isGenerationActive = false;
-				updateToggleButton(false);
+				updateToggleButton(false, isSidebarReady);
 			}
 		}
 
