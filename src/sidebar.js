@@ -819,7 +819,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			// Start generation
 			chrome.tabs.sendMessage(tab.id, {
 				type: "START_SUMMARIZATION",
-				summaryType: "key-points", // Default summary type
+				summaryType: "teasers", // Default summary type
 				processedContentHashes: Array.from(processedContentHashes),
 			});
 

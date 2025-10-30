@@ -213,7 +213,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 				apiProviderSelect.value = result.apiProvider || "chrome-ai";
 				geminiApiKey.value = result.geminiApiKey || "";
 				defaultSummaryType.value =
-					result.defaultSummaryType || "key-points";
+					result.defaultSummaryType || "teasers";
 				autoSummarize.checked = result.autoSummarize !== false;
 				smartTopics.checked = result.smartTopics !== false;
 				autoSnapEnabled.checked = result.autoSnapEnabled || false;
@@ -426,7 +426,7 @@ document.addEventListener("DOMContentLoaded", async function () {
 
 			if (apiType === "summarizer") {
 				const instance = await self.Summarizer.create({
-					type: "key-points",
+					type: "teasers",
 					format: "plain-text",
 					length: "medium",
 					outputLanguage: "en",
