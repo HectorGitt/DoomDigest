@@ -1907,7 +1907,7 @@ function createCustomAnalyticsPrompt(summaries, customization) {
 		? `\n\nAdditional Instructions: ${customization.customInstructions}`
 		: "";
 
-	return `You are analyzing article summaries from DoomDigest, a tool designed to help users consume content more productively and efficiently. Your goal is to provide actionable insights that help users improve their reading habits, knowledge acquisition, and productivity.
+	return `You are analyzing page summaries(i.e articles, emails, blogs and documentations) and social media post summaries(i.e tweets, Facebook posts, LinkedIn articles) from DoomDigest, a tool designed to help users consume content more productively and efficiently. Your goal is to provide actionable insights that help users improve their reading habits, knowledge acquisition, and productivity.
 
 ${depthInstruction}. ${focusAreasText}
 
@@ -1922,7 +1922,7 @@ As a productivity-focused analytics tool, focus on:
 - Time management and efficiency suggestions
 - Personal growth and development through better content consumption
 
-Article Summaries from DoomDigest:
+Summaries from DoomDigest:
 ${summariesText}${customInstructions}
 
 Please provide your productivity-focused analysis:`;
