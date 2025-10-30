@@ -99,13 +99,6 @@ class DigestManager {
 		});
 
 		// Navigation
-		document
-			.getElementById("back-to-sidebar")
-			.addEventListener("click", () => {
-				window.close();
-			});
-
-		// Export functionality
 		document.getElementById("export-btn").addEventListener("click", () => {
 			this.exportDigests();
 		});

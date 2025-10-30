@@ -406,7 +406,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 
 // Handle API requests from content script
-chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 	if (request.type === "SIMPLIFY_TEXT") {
 		handleSimplifyText(request.text)
 			.then((result) => {
@@ -625,16 +625,65 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
 			});
 		return true; // Keep message channel open for async response
 	} else if (request.type === "REMOVE_GOOGLE_DRIVE") {
-		// Handle Google Drive remove request from settings page
+		// Send immediate response to acknowledge
+		sendResponse({ success: true, acknowledged: true });
+
+		// Do the async remove work
 		handleGoogleDriveRemove()
 			.then((result) => {
-				sendResponse(result);
+				// Send result via separate message
+				chrome.runtime
+					.sendMessage({
+						type: "REMOVE_COMPLETED",
+						result: result,
+					})
+					.catch(() => {
+						// Ignore if settings page is not listening
+					});
 			})
 			.catch((error) => {
 				console.error("Google Drive remove error:", error);
-				sendResponse({ success: false, error: error.message });
+				chrome.runtime
+					.sendMessage({
+						type: "REMOVE_COMPLETED",
+						result: { success: false, error: error.message },
+					})
+					.catch(() => {
+						// Ignore if settings page is not listening
+					});
 			});
+
 		return true;
+	} else if (request.type === "SYNC_TO_GOOGLE_DRIVE") {
+		// Send immediate response to acknowledge
+		sendResponse({ success: true, acknowledged: true });
+
+		// Do the async sync work
+		handleGoogleDriveSync(request.summaries)
+			.then((result) => {
+				// Send result via separate message
+				chrome.runtime
+					.sendMessage({
+						type: "SYNC_COMPLETED",
+						result: result,
+					})
+					.catch(() => {
+						// Ignore if settings page is not listening
+					});
+			})
+			.catch((error) => {
+				console.error("Google Drive sync error:", error);
+				chrome.runtime
+					.sendMessage({
+						type: "SYNC_COMPLETED",
+						result: { success: false, error: error.message },
+					})
+					.catch(() => {
+						// Ignore if settings page is not listening
+					});
+			});
+
+		return true; // Keep message channel open for initial response
 	} else if (request.type === "SET_AUTO_SYNC_ALARM") {
 		// Handle setting up auto-sync alarm
 		chrome.alarms.create(request.alarmInfo.name, {
@@ -659,6 +708,36 @@ chrome.runtime.onMessage.addListener(async (request, sender, sendResponse) => {
 		chrome.alarms.clear("autoAnalytics");
 		chrome.storage.sync.remove(["autoAnalyticsSettings"]);
 		return true;
+	} else if (request.type === "SYNC_ANALYTICS_TO_GOOGLE_DRIVE") {
+		// Send immediate response to acknowledge
+		sendResponse({ success: true, acknowledged: true });
+
+		// Do the async sync work
+		handleAnalyticsGoogleDriveSync(request.analytics)
+			.then((result) => {
+				// Send result via separate message
+				chrome.runtime
+					.sendMessage({
+						type: "ANALYTICS_SYNC_COMPLETED",
+						result: result,
+					})
+					.catch(() => {
+						// Ignore if analytics page is not listening
+					});
+			})
+			.catch((error) => {
+				console.error("Analytics Google Drive sync error:", error);
+				chrome.runtime
+					.sendMessage({
+						type: "ANALYTICS_SYNC_COMPLETED",
+						result: { success: false, error: error.message },
+					})
+					.catch(() => {
+						// Ignore if analytics page is not listening
+					});
+			});
+
+		return true; // Keep message channel open for initial response
 	} else if (request.type === "SHOW_TOAST_NOTIFICATION") {
 		// Handle toast notification requests
 		showToastNotification(request.title, request.message);
@@ -1845,6 +1924,77 @@ async function handleGoogleDriveSync(summaries) {
 	}
 }
 
+// Handle Analytics Google Drive sync
+async function handleAnalyticsGoogleDriveSync(analytics) {
+	const syncStartTime = Date.now();
+
+	try {
+		// Set badge to indicate sync is running
+		await setSyncBadge(true);
+
+		// Get auth token - use interactive mode to prompt for auth if needed
+		const token = await new Promise((resolve, reject) => {
+			chrome.identity.getAuthToken({ interactive: true }, (token) => {
+				if (chrome.runtime.lastError) {
+					reject(
+						new Error(
+							chrome.runtime.lastError.message ||
+								"Unknown runtime error"
+						)
+					);
+				} else {
+					resolve(token);
+				}
+			});
+		});
+
+		// Sync analytics to Google Drive
+		await syncAnalyticsToDrive(token, analytics);
+
+		// Calculate sync duration
+		const syncEndTime = Date.now();
+		const syncDuration = syncEndTime - syncStartTime;
+
+		// Clear badge on success
+		await setSyncBadge(false);
+
+		return {
+			success: true,
+			message: `Successfully synced analytics to Google Drive in ${formatDuration(
+				syncDuration
+			)}!`,
+			duration: syncDuration,
+		};
+	} catch (error) {
+		console.error("Analytics Google Drive sync failed:", error);
+
+		// Calculate sync duration even on failure
+		const syncEndTime = Date.now();
+		const syncDuration = syncEndTime - syncStartTime;
+
+		// Clear badge on error
+		await setSyncBadge(false);
+
+		// Provide more specific error messages
+		let errorMessage = error.message;
+		if (error.message.includes("-100")) {
+			errorMessage =
+				"Network connection failed. Please check your internet connection and try again.";
+		} else if (error.message.includes("access_denied")) {
+			errorMessage =
+				"Access denied. Please reconnect to Google Drive and grant permissions.";
+		} else if (error.message.includes("invalid_grant")) {
+			errorMessage =
+				"Authentication expired. Please reconnect to Google Drive.";
+		} else if (error.message.includes("403")) {
+			errorMessage =
+				"Permission denied. Please check that you have access to create files in Drive.";
+		}
+
+		return { success: false, error: errorMessage, duration: syncDuration };
+	}
+}
+
 // Handle Google Drive connect
 async function handleGoogleDriveConnect() {
 	try {
@@ -1999,6 +2149,66 @@ async function syncSummariesToDrive(token, summaries) {
 	}
 }
 
+// Handle syncing analytics to Google Drive
+async function syncAnalyticsToDrive(token, analytics) {
+	const fileName = `DoomDigest-Analytics-${
+		new Date().toISOString().split("T")[0]
+	}.md`;
+	const markdownContent = await createAnalyticsMarkdownContent(analytics);
+
+	try {
+		// Step 1: Create or find the DoomDigest folder
+		const folderId = await createOrFindDoomDigestFolder(token);
+
+		// Step 2: Create the file metadata with parent folder
+		const metadata = {
+			name: fileName,
+			mimeType: "text/markdown",
+			description: "DoomDigest Analytics Report - Productivity analysis",
+			parents: [folderId], // Specify the parent folder
+		};
+
+		// Step 3: Upload the file using Google Drive API multipart upload
+		const response = await fetch(
+			"https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+			{
+				method: "POST",
+				headers: {
+					Authorization: `Bearer ${token}`,
+					"Content-Type": "multipart/related; boundary=boundary123",
+				},
+				body: createMultipartBody(metadata, markdownContent),
+			}
+		);
+
+		if (!response.ok) {
+			const errorData = await response.json();
+			throw new Error(
+				`Drive API error: ${response.status} - ${
+					errorData.error?.message || "Unknown error"
+				}`
+			);
+		}
+
+		const result = await response.json();
+		console.log(
+			"Analytics file created successfully in DoomDigest folder:",
+			result
+		);
+
+		return {
+			success: true,
+			fileId: result.id,
+			fileUrl: `https://drive.google.com/file/d/${result.id}/view`,
+			folderId: folderId,
+			message: `Successfully uploaded analytics to Google Drive: ${fileName}`,
+		};
+	} catch (error) {
+		console.error("Analytics Drive API call failed:", error);
+		throw error;
+	}
+}
+
 // Helper function to create or find DoomDigest folder
 async function createOrFindDoomDigestFolder(token) {
 	const folderName = "DoomDigest";
@@ -2110,6 +2320,39 @@ async function createMarkdownContent(summaries) {
 		content += `${summary.summary}\n\n`;
 		content += `---\n\n`;
 	});
+
+	return content;
+}
+
+// Create analytics markdown content for Google Drive
+async function createAnalyticsMarkdownContent(analytics) {
+	let content = `# DoomDigest Analytics Report\n\n`;
+	content += `*Generated on ${new Date(
+		analytics.generatedAt
+	).toLocaleString()}*\n\n`;
+
+	// Add analytics metadata
+	content += `## Report Details\n\n`;
+	content += `**Analysis Period:** ${analytics.customization.duration}\n\n`;
+	content += `**Analysis Depth:** ${analytics.customization.depth}\n\n`;
+	content += `**Focus Areas:** ${analytics.customization.focusAreas.join(
+		", "
+	)}\n\n`;
+	content += `**Output Format:** ${analytics.customization.format}\n\n`;
+	content += `**Summaries Analyzed:** ${analytics.summaryCount}\n\n`;
+
+	if (analytics.customization.customInstructions) {
+		content += `**Custom Instructions:** ${analytics.customization.customInstructions}\n\n`;
+	}
+
+	content += `---\n\n`;
+
+	// Add the analytics content
+	content += `## Productivity Analysis\n\n`;
+	content += `${analytics.content}\n\n`;
+
+	content += `---\n\n`;
+	content += `*Report generated by DoomDigest - AI-powered productivity analytics*\n`;
 
 	return content;
 }
@@ -2259,7 +2502,7 @@ chrome.notifications.onButtonClicked.addListener(
 							format: exportRetryData.format,
 						});
 					} catch (retryError) {
-						// Settings page not open or not listening - ignore this error
+						// Settings page not available for retry - ignoring
 						console.log(
 							"Settings page not available for retry - ignoring"
 						);

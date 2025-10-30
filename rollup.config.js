@@ -30,6 +30,7 @@ export default {
 				{ src: "src/icon.png", dest: "dist" },
 				{ src: "src/toast.js", dest: "dist" },
 				{ src: "src/modal.js", dest: "dist" },
+				{ src: "src/navigation.js", dest: "dist" },
 			],
 		}),
 	],

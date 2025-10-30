@@ -2,7 +2,7 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<title>DoomDigest Settings</title>
+		<title>Settings</title>
 		<link
 			href="https://fonts.googleapis.com/icon?family=Material+Icons"
 			rel="stylesheet"
@@ -10,12 +10,8 @@
 		<link href="settings.css" rel="stylesheet" />
 	</head>
 	<body>
-		<div class="header">
-			<h1>⚙️ DoomDigest Settings</h1>
-			<p>Configure your AI summarization preferences</p>
-		</div>
-
-		<div class="settings-section">
+		<div class="settings-container">
+			<div class="settings-section">
 			<h2><span class="material-icons">smart_toy</span> AI Provider</h2>
 
 			<div class="setting-group">
@@ -40,7 +36,7 @@
 			<div class="setting-group" id="chrome-ai-status">
 				<div class="setting-item">
 					<div class="setting-info">
-						<label>Chrome AI Status</label>
+						<label>Summarizer API Status</label>
 						<p class="description">
 							Built-in Chrome AI summarization status
 						</p>
@@ -534,16 +530,6 @@
 		</div>
 
 		<script src="settings.js" type="module"></script>
-		<script>
-			// Load toast and modal components
-			const extensionId = chrome.runtime.id;
-			const toastScript = document.createElement('script');
-			toastScript.src = `chrome-extension://${extensionId}/toast.js`;
-			document.head.appendChild(toastScript);
-
-			const modalScript = document.createElement('script');
-			modalScript.src = `chrome-extension://${extensionId}/modal.js`;
-			document.head.appendChild(modalScript);
-		</script>
+		<script src="navigation.js" type="module"></script>
 	</body>
 </html>

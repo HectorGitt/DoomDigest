@@ -2,7 +2,7 @@
 <html lang="en">
 	<head>
 		<meta charset="UTF-8" />
-		<title>DoomDigest Analytics</title>
+		<title>Analytics</title>
 		<link
 			href="https://fonts.googleapis.com/icon?family=Material+Icons"
 			rel="stylesheet"
@@ -18,6 +18,8 @@
 				background: white;
 				border-radius: 12px;
 				box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+				max-width: 1200px;
+				margin: 0 auto 30px;
 			}
 
 			.controls-header {
@@ -225,6 +227,8 @@
 				border-radius: 8px;
 				padding: 20px;
 				margin-top: 20px;
+				max-width: 1200px;
+				margin: 20px auto;
 			}
 
 			.analytics-header {
@@ -335,6 +339,8 @@
 
 			.saved-analytics-list {
 				margin-top: 20px;
+				max-width: 1200px;
+				margin: 20px auto;
 			}
 
 			.saved-item {
@@ -561,24 +567,9 @@
 		</style>
 	</head>
 	<body>
-		<div class="header">
-			<h1>📊 DoomDigest Productivity Analytics</h1>
-			<p>
-				AI-powered insights to optimize your content consumption and
-				boost productivity
-			</p>
-		</div>
-
-		<div class="analytics-controls">
+		<div class="analytics-container">
+			<div class="analytics-controls">
 			<div class="controls-header">
-				<button id="back-to-settings" class="btn-secondary">
-					<span
-						class="material-icons"
-						style="font-size: 18px; vertical-align: middle"
-						>arrow_back</span
-					>
-					Back to Settings
-				</button>
 				<h2 style="margin: 0; color: #111827">
 					Analysis Configuration
 				</h2>
@@ -786,13 +777,13 @@
 							>
 							Save Report
 						</button>
-						<button id="export-analytics" class="btn-secondary">
+						<button id="sync-analytics-drive" class="btn-secondary">
 							<span
 								class="material-icons"
 								style="font-size: 18px; vertical-align: middle"
-								>download</span
+								>cloud_upload</span
 							>
-							Export
+							Sync to Drive
 						</button>
 						<button id="copy-analytics" class="btn-primary">
 							<span
@@ -838,16 +829,6 @@
 		</div>
 
 		<script src="analytics.js" type="module"></script>
-		<script>
-			// Load toast and modal components
-			const extensionId = chrome.runtime.id;
-			const toastScript = document.createElement("script");
-			toastScript.src = `chrome-extension://${extensionId}/toast.js`;
-			document.head.appendChild(toastScript);
-
-			const modalScript = document.createElement("script");
-			modalScript.src = `chrome-extension://${extensionId}/modal.js`;
-			document.head.appendChild(modalScript);
-		</script>
+		<script src="navigation.js" type="module"></script>
 	</body>
 </html>

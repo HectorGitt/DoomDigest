@@ -2,7 +2,25 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
-document.addEventListener("DOMContentLoaded", function () {
+async function loadComponents() {
+	// Load toast and modal components
+	const extensionId = chrome.runtime.id;
+	await loadScript(`chrome-extension://${extensionId}/toast.js`);
+	await loadScript(`chrome-extension://${extensionId}/modal.js`);
+}
+
+function loadScript(src) {
+	return new Promise((resolve, reject) => {
+		const script = document.createElement("script");
+		script.src = src;
+		script.onload = resolve;
+		script.onerror = reject;
+		document.head.appendChild(script);
+	});
+}
+
+document.addEventListener("DOMContentLoaded", async function () {
+	await loadComponents();
 	// DOM elements
 	const backToSettingsBtn = document.getElementById("back-to-settings");
 	const timePeriodSelect = document.getElementById("time-period");
@@ -19,6 +37,9 @@ document.addEventListener("DOMContentLoaded", function () {
 	const saveAnalyticsBtn = document.getElementById("save-analytics");
 	const exportAnalyticsBtn = document.getElementById("export-analytics");
 	const copyAnalyticsBtn = document.getElementById("copy-analytics");
+	const syncAnalyticsDriveBtn = document.getElementById(
+		"sync-analytics-drive"
+	);
 	const savedAnalytics = document.getElementById("saved-analytics");
 	const savedReportsList = document.getElementById("saved-reports-list");
 
@@ -85,11 +106,35 @@ document.addEventListener("DOMContentLoaded", function () {
 		copyAnalyticsToClipboard()
 	);
 
+	// Sync analytics to drive
+	syncAnalyticsDriveBtn.addEventListener("click", () =>
+		syncAnalyticsToDrive()
+	);
+
 	// Modal close functionality
 	closeModalBtn.addEventListener("click", () => closeModal());
 	reportModal.addEventListener("click", (e) => {
 		if (e.target === reportModal) {
 			closeModal();
+		}
+	});
+
+	// Handle messages from background script
+	chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+		if (message.type === "ANALYTICS_SYNC_COMPLETED") {
+			if (message.result && message.result.success) {
+				toast.success(message.result.message);
+			} else {
+				toast.error(
+					message.result?.error ||
+						"Failed to sync analytics to Google Drive"
+				);
+			}
+			// Re-enable button
+			syncAnalyticsDriveBtn.disabled = false;
+			syncAnalyticsDriveBtn.innerHTML =
+				'<span class="material-icons" style="font-size: 18px; vertical-align: middle;">cloud_upload</span> Sync to Drive';
+			return true;
 		}
 	});
 
@@ -122,7 +167,7 @@ document.addEventListener("DOMContentLoaded", function () {
 
 			if (!summaries || summaries.length === 0) {
 				hideLoadingOverlay();
-				alert(
+				toast.error(
 					`No summaries found for the selected time period (${
 						timePeriodSelect.options[timePeriodSelect.selectedIndex]
 							.text
@@ -160,14 +205,14 @@ document.addEventListener("DOMContentLoaded", function () {
 				// Scroll to results
 				analyticsResults.scrollIntoView({ behavior: "smooth" });
 			} else {
-				alert(
+				toast.error(
 					`Analytics generation failed: ${analyticsResponse.error}`
 				);
 			}
 		} catch (error) {
 			hideLoadingOverlay();
 			console.error("Analytics generation error:", error);
-			alert("Failed to generate analytics: " + error.message);
+			toast.error("Failed to generate analytics: " + error.message);
 		}
 	}
 
@@ -249,7 +294,9 @@ document.addEventListener("DOMContentLoaded", function () {
 
 	async function saveAnalyticsReport() {
 		if (!window.currentAnalytics) {
-			alert("No analytics report to save. Generate analytics first.");
+			toast.error(
+				"No analytics report to save. Generate analytics first."
+			);
 			return;
 		}
 
@@ -296,10 +343,12 @@ document.addEventListener("DOMContentLoaded", function () {
 			// Refresh saved reports list
 			loadSavedReports();
 
-			alert(`Analytics report "${reportName}" saved successfully!`);
+			toast.success(
+				`Analytics report "${reportName}" saved successfully!`
+			);
 		} catch (error) {
 			console.error("Error saving analytics report:", error);
-			alert("Failed to save analytics report: " + error.message);
+			toast.error("Failed to save analytics report: " + error.message);
 		}
 	}
 
@@ -400,7 +449,7 @@ document.addEventListener("DOMContentLoaded", function () {
 			}
 		} catch (error) {
 			console.error("Error loading saved report:", error);
-			alert("Failed to load saved report: " + error.message);
+			toast.error("Failed to load saved report: " + error.message);
 		}
 	};
 
@@ -446,16 +495,18 @@ document.addEventListener("DOMContentLoaded", function () {
 			// Refresh the list
 			loadSavedReports();
 
-			alert("Analytics report deleted successfully!");
+			toast.success("Analytics report deleted successfully!");
 		} catch (error) {
 			console.error("Error deleting saved report:", error);
-			alert("Failed to delete analytics report: " + error.message);
+			toast.error("Failed to delete analytics report: " + error.message);
 		}
 	};
 
 	async function exportAnalyticsReport() {
 		if (!window.currentAnalytics) {
-			alert("No analytics report to export. Generate analytics first.");
+			toast.error(
+				"No analytics report to export. Generate analytics first."
+			);
 			return;
 		}
 
@@ -496,13 +547,15 @@ ${window.currentAnalytics.content}
 			URL.revokeObjectURL(url);
 		} catch (error) {
 			console.error("Error exporting analytics:", error);
-			alert("Failed to export analytics: " + error.message);
+			toast.error("Failed to export analytics: " + error.message);
 		}
 	}
 
 	async function copyAnalyticsToClipboard() {
 		if (!window.currentAnalytics) {
-			alert("No analytics report to copy. Generate analytics first.");
+			toast.error(
+				"No analytics report to copy. Generate analytics first."
+			);
 			return;
 		}
 
@@ -521,7 +574,43 @@ ${window.currentAnalytics.content}
 			}, 2000);
 		} catch (error) {
 			console.error("Failed to copy to clipboard:", error);
-			alert("Failed to copy to clipboard. Please try again.");
+			toast.error("Failed to copy to clipboard. Please try again.");
+		}
+	}
+
+	async function syncAnalyticsToDrive() {
+		if (!window.currentAnalytics) {
+			toast.error(
+				"No analytics report to sync. Generate analytics first."
+			);
+			return;
+		}
+
+		try {
+			syncAnalyticsDriveBtn.disabled = true;
+			syncAnalyticsDriveBtn.innerHTML =
+				'<span class="material-icons" style="font-size: 18px; vertical-align: middle;">cloud_upload</span> Syncing...';
+
+			// Send sync request to background script
+			const response = await chrome.runtime.sendMessage({
+				type: "SYNC_ANALYTICS_TO_GOOGLE_DRIVE",
+				analytics: window.currentAnalytics,
+			});
+
+			if (response.success) {
+				toast.success(response.message);
+			} else {
+				toast.error(
+					response.error || "Failed to sync analytics to Google Drive"
+				);
+			}
+		} catch (error) {
+			console.error("Analytics sync failed:", error);
+			toast.error("Failed to sync analytics: " + error.message);
+		} finally {
+			syncAnalyticsDriveBtn.disabled = false;
+			syncAnalyticsDriveBtn.innerHTML =
+				'<span class="material-icons" style="font-size: 18px; vertical-align: middle;">cloud_upload</span> Sync to Drive';
 		}
 	}
 

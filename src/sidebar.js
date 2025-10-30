@@ -1,18 +1,16 @@
 // sidebar.js
 const container = document.getElementById("summaries");
-const statusDiv = document.getElementById("status");
-const summaryTypeSelect = document.getElementById("summary-type");
-const clearBtn = document.getElementById("clear-btn");
 const toggleGenerationBtn = document.getElementById("toggle-generation-btn");
 const stopAllBtn = document.getElementById("stop-all-btn");
-const searchInput = document.getElementById("search-input");
+const floatingSettingsBtn = document.getElementById("floating-settings-btn");
+const viewAllBtn = document.getElementById("view-all-btn");
+const autoSnapToggleBtn = document.getElementById("auto-snap-toggle-btn");
 
 let summaries = [];
 let processedContentHashes = new Set(); // Store processed content hashes persistently
 let activeSummarizations = 0; // Track number of active summarizations
 let isGenerationActive = false; // Track if generation is currently active
 let siteGroups = {}; // Group summaries by hostname
-let currentSearchQuery = ""; // Current search query for filtering
 let isLoading = false; // Track loading state
 
 // Loading state management functions
@@ -117,24 +115,6 @@ async function loadSummariesFromIndexedDB() {
 	}
 }
 
-// Clear all summaries from IndexedDB
-async function clearIndexedDB() {
-	try {
-		const db = await initIndexedDB();
-		const transaction = db.transaction(["summaries"], "readwrite");
-		const store = transaction.objectStore("summaries");
-
-		return new Promise((resolve, reject) => {
-			const clearRequest = store.clear();
-			clearRequest.onsuccess = () => resolve();
-			clearRequest.onerror = () => reject(clearRequest.error);
-		});
-	} catch (error) {
-		console.error("Error clearing IndexedDB:", error);
-		throw error;
-	}
-}
-
 // Helper function to update toggle button with icon and text
 function updateToggleButton(isActive) {
 	const iconSpan = toggleGenerationBtn.querySelector(".material-icons");
@@ -142,11 +122,11 @@ function updateToggleButton(isActive) {
 
 	if (isActive) {
 		iconSpan.textContent = "stop";
-		textSpan.textContent = "Stop";
+		textSpan.textContent = "Stop All";
 		toggleGenerationBtn.className = "stop-mode";
 	} else {
 		iconSpan.textContent = "play_arrow";
-		textSpan.textContent = "Start";
+		textSpan.textContent = "Start PagePulse";
 		toggleGenerationBtn.className = "start-mode";
 	}
 
@@ -158,6 +138,30 @@ function updateToggleButton(isActive) {
 		existingText.textContent = textSpan.textContent;
 	} else {
 		toggleGenerationBtn.appendChild(textSpan);
+	}
+}
+
+// Helper function to update View All button with total count
+function updateViewAllButton(totalCount) {
+	const textSpan = viewAllBtn.querySelector("span:last-child");
+	if (textSpan) {
+		textSpan.textContent = `View All (${totalCount})`;
+	}
+}
+
+// Helper function to update Auto Snap button state
+function updateAutoSnapButton(isEnabled) {
+	const iconSpan = autoSnapToggleBtn.querySelector(".material-icons");
+	const textSpan = autoSnapToggleBtn.querySelector("span:last-child");
+
+	if (isEnabled) {
+		autoSnapToggleBtn.classList.add("active");
+		iconSpan.textContent = "flash_on";
+		textSpan.textContent = "Auto Snap: ON";
+	} else {
+		autoSnapToggleBtn.classList.remove("active");
+		iconSpan.textContent = "flash_off";
+		textSpan.textContent = "Auto Snap: OFF";
 	}
 }
 
@@ -447,36 +451,16 @@ function renderGroupedSummaries() {
 }
 
 function renderSummaries(allSummaries) {
-	// Filter summaries based on search query
-	let filteredSummaries = allSummaries;
-	if (currentSearchQuery.trim()) {
-		const query = currentSearchQuery.toLowerCase().trim();
-		filteredSummaries = allSummaries.filter((summary) => {
-			// Search in title, summary content, and URL
-			const title = (summary.title || "").toLowerCase();
-			const summaryText = (summary.summary || "").toLowerCase();
-			const url = (summary.url || "").toLowerCase();
-
-			return (
-				title.includes(query) ||
-				summaryText.includes(query) ||
-				url.includes(query)
-			);
-		});
-	}
-
 	// Sort all summaries by timestamp (newest first)
-	filteredSummaries.sort((a, b) => {
+	allSummaries.sort((a, b) => {
 		const timeA = a.timestamp || 0;
 		const timeB = b.timestamp || 0;
 		return timeB - timeA;
 	});
 
 	// Limit to 20 summaries for sidebar view
-	const sidebarSummaries = filteredSummaries.slice(0, 20);
-	const hasMoreSummaries = filteredSummaries.length > 20;
-
-	// Group summaries by day
+	const sidebarSummaries = allSummaries.slice(0, 20);
+	const hasMoreSummaries = allSummaries.length > 20;
 	const grouped = {};
 	sidebarSummaries.forEach((summary) => {
 		const date = summary.timestamp
@@ -594,20 +578,8 @@ function renderSummaries(allSummaries) {
 		container.appendChild(dayGroup);
 	});
 
-	// Add "View All" button if there are more summaries
-	if (hasMoreSummaries) {
-		const viewAllButton = document.createElement("button");
-		viewAllButton.id = "view-all-btn";
-		viewAllButton.innerHTML = `
-            <span class="material-icons">expand_more</span>
-            <span>View All Digests (${filteredSummaries.length})</span>
-        `;
-		viewAllButton.addEventListener("click", () => {
-			// Open the digest page
-			chrome.tabs.create({ url: chrome.runtime.getURL("digest.html") });
-		});
-		container.appendChild(viewAllButton);
-	}
+	// Update View All button with total count
+	updateViewAllButton(allSummaries.length);
 }
 
 // Apply website colors on load
@@ -621,7 +593,7 @@ document.addEventListener("visibilitychange", () => {
 			.then((loadedSummaries) => {
 				summaries = loadedSummaries || [];
 				renderGroupedSummaries();
-				statusDiv.textContent = `${summaries.length} summaries`;
+				updateViewAllButton(summaries.length);
 			})
 			.catch((error) => {
 				console.error(
@@ -647,73 +619,72 @@ chrome.runtime.onMessage.addListener((message) => {
 });
 
 // Load saved settings and processed hashes
-chrome.storage.sync.get(["summaryType", "processedContentHashes"], (result) => {
-	const validTypes = ["key-points", "headline", "teaser"];
-	const savedType = validTypes.includes(result.summaryType)
-		? result.summaryType
-		: "key-points";
-	summaryTypeSelect.value = savedType;
-
-	// Load processed content hashes
-	if (result.processedContentHashes) {
-		processedContentHashes = new Set(result.processedContentHashes);
-	}
-
-	// Load saved summaries from IndexedDB
-	loadSummariesFromIndexedDB()
-		.then((loadedSummaries) => {
-			summaries = loadedSummaries || [];
-			renderGroupedSummaries();
-			updateStatus();
-		})
-		.catch((error) => {
-			console.error("Error loading summaries from IndexedDB:", error);
-			summaries = [];
-			renderGroupedSummaries();
-			updateStatus();
-		});
-});
-
-// Save settings when changed
-summaryTypeSelect.addEventListener("change", () => {
-	const validTypes = ["key-points", "headline", "teaser"];
-	const type = validTypes.includes(summaryTypeSelect.value)
-		? summaryTypeSelect.value
-		: "key-points";
-	chrome.storage.sync.set({ summaryType: type });
-	// Notify content scripts
-	chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-		if (tabs[0]) {
-			chrome.tabs.sendMessage(tabs[0].id, {
-				type: "UPDATE_SETTINGS",
-				summaryType: type,
-				processedContentHashes: Array.from(processedContentHashes),
-			});
+chrome.storage.sync.get(
+	["processedContentHashes", "autoSnapEnabled"],
+	(result) => {
+		// Load processed content hashes
+		if (result.processedContentHashes) {
+			processedContentHashes = new Set(result.processedContentHashes);
 		}
-	});
+
+		// Update auto snap button state
+		updateAutoSnapButton(result.autoSnapEnabled || false);
+
+		// Load saved summaries from IndexedDB
+		loadSummariesFromIndexedDB()
+			.then((loadedSummaries) => {
+				summaries = loadedSummaries || [];
+				renderGroupedSummaries();
+				updateViewAllButton(summaries.length);
+				updateStatus();
+			})
+			.catch((error) => {
+				console.error("Error loading summaries from IndexedDB:", error);
+				summaries = [];
+				renderGroupedSummaries();
+				updateViewAllButton(0);
+				updateStatus();
+			});
+	}
+);
+
+// Settings button
+floatingSettingsBtn.addEventListener("click", () => {
+	chrome.runtime.openOptionsPage();
 });
 
-// Clear all summaries
-clearBtn.addEventListener("click", () => {
-	summaries = [];
-	processedContentHashes.clear();
-	activeSummarizations = 0; // Reset active summarizations
-	renderGroupedSummaries();
+// View All button
+viewAllBtn.addEventListener("click", () => {
+	// Open the digest page
+	chrome.tabs.create({ url: chrome.runtime.getURL("digest.html") });
+});
 
-	// Clear from IndexedDB and storage
-	clearIndexedDB()
-		.then(() => {
-			console.log("Summaries cleared from IndexedDB");
-		})
-		.catch((error) => {
-			console.error("Error clearing IndexedDB:", error);
-		});
-	chrome.storage.sync.remove(["processedContentHashes"]);
+// Auto Snap toggle button
+autoSnapToggleBtn.addEventListener("click", async () => {
+	try {
+		// Get current auto-snap state
+		const result = await chrome.storage.sync.get(["autoSnapEnabled"]);
+		const currentState = result.autoSnapEnabled || false;
+		const newState = !currentState;
 
-	statusDiv.textContent = "Summaries cleared";
-	setTimeout(() => {
-		statusDiv.textContent = `Ready - ${summaries.length} summaries`;
-	}, 2000);
+		// Save new state
+		await chrome.storage.sync.set({ autoSnapEnabled: newState });
+
+		// Update button appearance
+		updateAutoSnapButton(newState);
+
+		// Show feedback
+		if (window.showToast) {
+			window.showToast(
+				`Auto Snap ${newState ? "Enabled" : "Disabled"}`,
+				newState ? "success" : "info"
+			);
+		}
+
+		console.log(`Auto Snap ${newState ? "enabled" : "disabled"}`);
+	} catch (error) {
+		console.error("Error toggling auto snap:", error);
+	}
 });
 
 // Toggle generation button
@@ -724,7 +695,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			currentWindow: true,
 		});
 		if (!tab) {
-			statusDiv.textContent = "No active tab found";
+			console.log("No active tab found");
 			return;
 		}
 
@@ -740,7 +711,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			updateToggleButton(false);
 			renderGroupedSummaries();
 
-			statusDiv.textContent = "Generation stopped";
+			console.log("Generation stopped");
 		} else {
 			// Check API availability before starting generation
 			const geminiTested = await checkGeminiTestedStatus();
@@ -768,14 +739,14 @@ toggleGenerationBtn.addEventListener("click", async () => {
 			// Start generation
 			chrome.tabs.sendMessage(tab.id, {
 				type: "START_SUMMARIZATION",
-				summaryType: summaryTypeSelect.value,
+				summaryType: "key-points", // Default summary type
 				processedContentHashes: Array.from(processedContentHashes),
 			});
 
 			isGenerationActive = true;
 			updateToggleButton(true);
 
-			statusDiv.textContent = "Starting summarization...";
+			console.log("Starting summarization...");
 		}
 
 		toggleGenerationBtn.disabled = true;
@@ -784,7 +755,7 @@ toggleGenerationBtn.addEventListener("click", async () => {
 		}, 1000); // Prevent rapid clicking
 	} catch (error) {
 		console.error("Error toggling generation:", error);
-		statusDiv.textContent = "Error toggling generation";
+		console.log("Error toggling generation");
 	}
 });
 
@@ -796,7 +767,7 @@ stopAllBtn.addEventListener("click", async () => {
 			currentWindow: true,
 		});
 		if (!tab) {
-			statusDiv.textContent = "No active tab found";
+			console.log("No active tab found");
 			return;
 		}
 
@@ -815,8 +786,7 @@ stopAllBtn.addEventListener("click", async () => {
 		updateToggleButton(false);
 		renderGroupedSummaries();
 
-		statusDiv.textContent =
-			"All generations stopped and new generation disabled";
+		console.log("All generations stopped and new generation disabled");
 
 		stopAllBtn.disabled = true;
 		setTimeout(() => {
@@ -824,7 +794,7 @@ stopAllBtn.addEventListener("click", async () => {
 		}, 1000); // Prevent rapid clicking
 	} catch (error) {
 		console.error("Error stopping all generations:", error);
-		statusDiv.textContent = "Error stopping generations";
+		console.log("Error stopping generations");
 	}
 });
 
@@ -836,7 +806,7 @@ async function checkAPIStatus() {
 	if (geminiTested) {
 		// If Gemini has been tested successfully, use it and clear any errors
 		await switchToGeminiProvider();
-		statusDiv.textContent = "Using Gemini API";
+		console.log("Using Gemini API");
 		return;
 	}
 
@@ -845,7 +815,7 @@ async function checkAPIStatus() {
 		try {
 			const avail = await self.Summarizer.availability();
 			if (avail === "available") {
-				statusDiv.textContent = "AI Summarizer Ready";
+				console.log("AI Summarizer Ready");
 			} else {
 				// Show button to go to settings instead of downloading
 				showSettingsButton(
@@ -865,17 +835,9 @@ async function checkAPIStatus() {
 }
 
 function showSettingsButton(message) {
-	statusDiv.innerHTML = `
-		<span>${message}</span>
-		<button id="go-to-settings" style="margin-left: 10px; padding: 4px 8px; font-size: 12px;">
-			Settings
-		</button>
-	`;
-
-	// Add event listener to the button
-	document.getElementById("go-to-settings").addEventListener("click", () => {
-		chrome.runtime.openOptionsPage();
-	});
+	// Since we don't have a status div anymore, just open settings directly
+	console.log(message);
+	chrome.runtime.openOptionsPage();
 }
 
 async function checkGeminiTestedStatus() {
@@ -904,7 +866,6 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 		// Clear loading state if no more active summarizations
 		if (activeSummarizations === 0) {
-			statusDiv.textContent = `${summaries.length + 1} summaries`;
 			// Reset toggle button if generation is complete
 			if (isGenerationActive) {
 				isGenerationActive = false;
@@ -934,25 +895,19 @@ chrome.runtime.onMessage.addListener((msg) => {
 
 		// Re-render grouped summaries
 		renderGroupedSummaries();
-
-		statusDiv.textContent = `${summaries.length} summaries`;
 	} else if (msg.type === "SUMMARIZING_START") {
 		// Increment active summarizations count
 		activeSummarizations++;
 
 		// Re-render to show loading state
 		renderGroupedSummaries();
-
-		statusDiv.textContent = `Generating ${activeSummarizations} summary${
-			activeSummarizations > 1 ? "ies" : ""
-		}...`;
 	} else if (msg.type === "REFRESH_SIDEBAR") {
 		// Refresh sidebar data
 		loadSummariesFromIndexedDB()
 			.then((loadedSummaries) => {
 				summaries = loadedSummaries || [];
 				renderGroupedSummaries();
-				statusDiv.textContent = `${summaries.length} summaries`;
+				updateViewAllButton(summaries.length);
 			})
 			.catch((error) => {
 				console.error("Error refreshing sidebar:", error);
@@ -998,23 +953,17 @@ chrome.storage.sync.get(["processedContentHashes"], (result) => {
 		.then((loadedSummaries) => {
 			summaries = loadedSummaries || [];
 			renderGroupedSummaries();
-			statusDiv.textContent = `${summaries.length} summaries`;
+			updateViewAllButton(summaries.length);
 		})
 		.catch((error) => {
 			console.error("Error loading summaries on init:", error);
 			summaries = [];
 			renderGroupedSummaries();
-			statusDiv.textContent = "0 summaries";
+			updateViewAllButton(0);
 		});
-});
-
-// Search functionality
-searchInput.addEventListener("input", () => {
-	currentSearchQuery = searchInput.value;
-	renderGroupedSummaries();
 });
 
 // Update status display
 function updateStatus() {
-	statusDiv.textContent = `${summaries.length} summaries`;
+	// Status display removed - no longer needed
 }

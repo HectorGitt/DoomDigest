@@ -1,7 +1,25 @@
 // settings.js
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-document.addEventListener("DOMContentLoaded", function () {
+async function loadComponents() {
+	// Load toast and modal components
+	const extensionId = chrome.runtime.id;
+	await loadScript(`chrome-extension://${extensionId}/toast.js`);
+	await loadScript(`chrome-extension://${extensionId}/modal.js`);
+}
+
+function loadScript(src) {
+	return new Promise((resolve, reject) => {
+		const script = document.createElement("script");
+		script.src = src;
+		script.onload = resolve;
+		script.onerror = reject;
+		document.head.appendChild(script);
+	});
+}
+
+document.addEventListener("DOMContentLoaded", async function () {
+	await loadComponents();
 	// DOM elements
 	const apiProviderSelect = document.getElementById("api-provider");
 	const chromeAiIndicator = document.getElementById("chrome-ai-indicator");
@@ -427,7 +445,7 @@ document.addEventListener("DOMContentLoaded", function () {
 			}, 2000);
 		} catch (e) {
 			console.error(`${apiType} API download failed:`, e);
-			alert("Download failed: " + e.message);
+			toast.error("Download failed: " + e.message);
 			// Reset all statuses on error
 			checkAllAPIStatuses();
 		} finally {
@@ -516,7 +534,7 @@ document.addEventListener("DOMContentLoaded", function () {
 				!response.summaries ||
 				response.summaries.length === 0
 			) {
-				alert("No summaries to export");
+				toast.error("No summaries to export");
 				return;
 			}
 
@@ -564,7 +582,7 @@ document.addEventListener("DOMContentLoaded", function () {
 			});
 		} catch (e) {
 			console.error("Export failed:", e);
-			alert("Export failed: " + e.message);
+			toast.error("Export failed: " + e.message);
 
 			// Show failure notification with retry option
 			await chrome.runtime.sendMessage({
@@ -682,13 +700,13 @@ document.addEventListener("DOMContentLoaded", function () {
 				removeGoogleDriveBtn.style.display = "inline-block";
 				googleDriveStatus.style.display = "inline-block";
 
-				alert("Successfully connected to Google Drive!");
+				toast.success("Successfully connected to Google Drive!");
 			} else {
-				alert(connectResponse.error);
+				toast.error(connectResponse.error);
 			}
 		} catch (error) {
 			console.error("Google Drive connection failed:", error);
-			alert("Failed to connect to Google Drive: " + error.message);
+			toast.error("Failed to connect to Google Drive: " + error.message);
 		} finally {
 			connectGoogleDriveBtn.disabled = false;
 			connectGoogleDriveBtn.textContent = "Connect";
@@ -710,42 +728,22 @@ document.addEventListener("DOMContentLoaded", function () {
 				!response.summaries ||
 				response.summaries.length === 0
 			) {
-				alert("No summaries to sync");
+				toast.error("No summaries to sync");
 				return;
 			}
 
 			const summaries = response.summaries;
 
 			// Send sync request to background script
-			const syncResponse = await chrome.runtime.sendMessage({
+			await chrome.runtime.sendMessage({
 				type: "SYNC_TO_GOOGLE_DRIVE",
 				summaries: summaries,
 			});
 
-			if (syncResponse.success) {
-				alert(syncResponse.message);
-				// Refresh last sync info
-				loadLastSyncInfo();
-			} else {
-				// Clear connection status on auth errors
-				if (
-					syncResponse.error.includes("access_denied") ||
-					syncResponse.error.includes("invalid_grant")
-				) {
-					chrome.storage.sync.remove(["googleDriveConnected"], () => {
-						// Reset UI to show connect button
-						connectGoogleDriveBtn.style.display = "inline-block";
-						syncGoogleDriveBtn.style.display = "none";
-						removeGoogleDriveBtn.style.display = "none";
-						googleDriveStatus.style.display = "none";
-					});
-				}
-				alert(syncResponse.error);
-			}
+			// The result will come via SYNC_COMPLETED message
 		} catch (error) {
 			console.error("Google Drive sync failed:", error);
-			alert("Failed to sync to Google Drive: " + error.message);
-		} finally {
+			toast.error("Failed to start sync: " + error.message);
 			syncGoogleDriveBtn.disabled = false;
 			syncGoogleDriveBtn.textContent = "Sync Digest";
 		}
@@ -757,28 +755,14 @@ document.addEventListener("DOMContentLoaded", function () {
 			removeGoogleDriveBtn.textContent = "Removing...";
 
 			// Send remove request to background script
-			const removeResponse = await chrome.runtime.sendMessage({
+			await chrome.runtime.sendMessage({
 				type: "REMOVE_GOOGLE_DRIVE",
 			});
 
-			if (removeResponse.success) {
-				// Clear connection status
-				chrome.storage.sync.remove(["googleDriveConnected"]);
-
-				// Update UI
-				connectGoogleDriveBtn.style.display = "inline-block";
-				syncGoogleDriveBtn.style.display = "none";
-				removeGoogleDriveBtn.style.display = "none";
-				googleDriveStatus.style.display = "none";
-
-				alert("Successfully disconnected from Google Drive!");
-			} else {
-				alert(removeResponse.error);
-			}
+			// The result will come via REMOVE_COMPLETED message
 		} catch (error) {
 			console.error("Google Drive removal failed:", error);
-			alert("Failed to disconnect from Google Drive: " + error.message);
-		} finally {
+			toast.error("Failed to start removal: " + error.message);
 			removeGoogleDriveBtn.disabled = false;
 			removeGoogleDriveBtn.textContent = "Remove";
 		}
@@ -900,6 +884,57 @@ document.addEventListener("DOMContentLoaded", function () {
 		if (message.type === "RETRY_EXPORT") {
 			// Retry the export with the specified format
 			exportDigest(message.format);
+			return true;
+		} else if (message.type === "SYNC_COMPLETED") {
+			if (message.result && message.result.success) {
+				toast.success(message.result.message);
+				// Refresh last sync info
+				loadLastSyncInfo();
+			} else {
+				// Clear connection status on auth errors
+				if (
+					message.result &&
+					message.result.error &&
+					(message.result.error.includes("access_denied") ||
+						message.result.error.includes("invalid_grant"))
+				) {
+					chrome.storage.sync.remove(["googleDriveConnected"], () => {
+						// Reset UI to show connect button
+						connectGoogleDriveBtn.style.display = "inline-block";
+						syncGoogleDriveBtn.style.display = "none";
+						removeGoogleDriveBtn.style.display = "none";
+						googleDriveStatus.style.display = "none";
+					});
+				}
+				toast.error(
+					message.result?.error || "Failed to sync to Google Drive"
+				);
+			}
+			// Re-enable button
+			syncGoogleDriveBtn.disabled = false;
+			syncGoogleDriveBtn.textContent = "Sync Digest";
+			return true;
+		} else if (message.type === "REMOVE_COMPLETED") {
+			if (message.result && message.result.success) {
+				// Clear connection status
+				chrome.storage.sync.remove(["googleDriveConnected"]);
+
+				// Update UI
+				connectGoogleDriveBtn.style.display = "inline-block";
+				syncGoogleDriveBtn.style.display = "none";
+				removeGoogleDriveBtn.style.display = "none";
+				googleDriveStatus.style.display = "none";
+
+				toast.success("Successfully disconnected from Google Drive!");
+			} else {
+				toast.error(
+					message.result?.error ||
+						"Failed to disconnect from Google Drive"
+				);
+			}
+			// Re-enable button
+			removeGoogleDriveBtn.disabled = false;
+			removeGoogleDriveBtn.textContent = "Remove";
 			return true;
 		}
 	});
