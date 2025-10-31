@@ -1353,7 +1353,24 @@ async function handlePageSnap(
 			throw new Error("No content found for page snap");
 		}
 
-		// Use the first (most relevant) content block
+		// Enhanced content processing: check for multiple content blocks
+		const hasManyContentBlocks = pageContent.length >= 10;
+		let contentToProcess = pageContent;
+
+		if (hasManyContentBlocks) {
+			console.log(
+				`Detected ${pageContent.length} content blocks, using headline format for all blocks`
+			);
+			// Process all blocks when there are many (10+)
+		} else {
+			console.log(
+				`Found ${pageContent.length} content blocks, using optimized format for main block`
+			);
+			// Use only the first (most relevant) content block for fewer blocks
+			contentToProcess = [pageContent[0]];
+		}
+
+		// Use the first (most relevant) content block for basic checks and title extraction
 		const mainContent = pageContent[0];
 		const normalizedText = normalizeText(mainContent.text);
 
@@ -1369,7 +1386,7 @@ async function handlePageSnap(
 			throw new Error("Content too short for page snap");
 		}
 
-		// Create content hash to avoid duplicates
+		// Create content hash to avoid duplicates (use main content for hashing)
 		const contentHash = hashString(normalizedText);
 
 		// Check if already processed
@@ -1390,9 +1407,43 @@ async function handlePageSnap(
 		// Determine content type based on URL and context
 		const contentType = detectContentType(url, title);
 
-		// Summarize the content
-		const text = normalizedText.slice(0, 2000); // Limit for API
-		const summary = await summarizeText(text, summaryType);
+		// Get optimal summary configuration based on content type and context
+		const combinedContentLength = hasManyContentBlocks
+			? contentToProcess.reduce(
+					(total, block) => total + normalizeText(block.text).length,
+					0
+			  )
+			: normalizedText.length;
+
+		const summaryConfig = getOptimalSummaryConfig(
+			contentType,
+			combinedContentLength,
+			hasManyContentBlocks
+		);
+
+		// Process content based on configuration
+		let summary;
+		if (hasManyContentBlocks) {
+			// Process all content blocks with optimized format
+			const combinedText = contentToProcess
+				.map((block) => normalizeText(block.text))
+				.join("\n\n")
+				.slice(0, 4000); // Limit combined text
+
+			summary = await summarizeText(
+				combinedText,
+				summaryConfig.summaryType,
+				summaryConfig.length
+			);
+		} else {
+			// Process single content block with optimized format
+			const text = normalizedText.slice(0, 2000); // Limit for API
+			summary = await summarizeText(
+				text,
+				summaryConfig.summaryType,
+				summaryConfig.length
+			);
+		}
 
 		if (summary) {
 			// Create summary data - truncate content aggressively to fit storage limits
@@ -1534,14 +1585,20 @@ async function handleAddSelectedTextSummarized(selectedText, url, title) {
 				? selectedText.slice(0, 50) + "..."
 				: selectedText);
 
-		// Load default summary type from settings
-		const settings = await chrome.storage.sync.get(["defaultSummaryType"]);
-		const summaryType = settings.defaultSummaryType || "teasers";
+		// Determine optimal summary configuration for selected text
+		// Selected text is typically user-curated, so treat as "article" type
+		const contentType = "article"; // Selected text is user-curated content
+		const selectedTextConfig = getOptimalSummaryConfig(
+			contentType,
+			selectedText.length,
+			false
+		);
 
-		// Summarize the selected text
+		// Summarize the selected text with optimal configuration
 		const summary = await summarizeText(
 			selectedText.slice(0, 2000),
-			summaryType
+			selectedTextConfig.summaryType,
+			selectedTextConfig.length
 		);
 
 		if (summary) {
@@ -2756,49 +2813,170 @@ function formatDuration(milliseconds) {
 	}
 }
 
-// Helper function to detect content type based on URL and title
-function detectContentType(url, title) {
-	try {
-		const urlObj = new URL(url);
-		const hostname = urlObj.hostname.toLowerCase();
-		const pathname = urlObj.pathname.toLowerCase();
-		const titleLower = (title || "").toLowerCase();
+// Determine optimal summary configuration based on content type and context
+function getOptimalSummaryConfig(
+	contentType,
+	contentLength,
+	hasManyBlocks = false
+) {
+	// Base configuration
+	let summaryType = "teaser";
+	let length = "medium";
 
-		// Email detection
+	// Adjust based on content type
+	switch (contentType) {
+		case "email":
+			// Emails are typically concise communications - use tldr for quick overview
+			summaryType = "tldr";
+			if (contentLength < 500) {
+				length = "short"; // 1 sentence
+			} else if (contentLength < 2000) {
+				length = "medium"; // 3 sentences
+			} else {
+				length = "long"; // 5 sentences
+			}
+			break;
+
+		case "post":
+			// Social media posts are short and punchy - use teaser to draw attention
+			summaryType = "teaser";
+			if (contentLength < 300) {
+				length = "short"; // 1 sentence
+			} else if (contentLength < 1000) {
+				length = "medium"; // 3 sentences
+			} else {
+				length = "long"; // 5 sentences
+			}
+			break;
+
+		case "feed":
+			// Social media feeds contain multiple posts - use key-points for overview
+			summaryType = "key-points";
+			if (contentLength < 1000) {
+				length = "short"; // 3 bullet points
+			} else if (contentLength < 3000) {
+				length = "medium"; // 5 bullet points
+			} else {
+				length = "long"; // 7 bullet points
+			}
+			break;
+
+		case "article":
+		default:
+			// Articles benefit from key points for structured understanding
+			if (hasManyBlocks) {
+				// Multiple content blocks suggest complex content - use headline
+				summaryType = "headline";
+				if (contentLength < 1000) {
+					length = "short"; // 12 words
+				} else if (contentLength < 3000) {
+					length = "medium"; // 17 words
+				} else {
+					length = "long"; // 22 words
+				}
+			} else {
+				// Single article - use key-points for comprehensive understanding
+				summaryType = "key-points";
+				if (contentLength < 800) {
+					length = "short"; // 3 bullet points
+				} else if (contentLength < 2500) {
+					length = "medium"; // 5 bullet points
+				} else {
+					length = "long"; // 7 bullet points
+				}
+			}
+			break;
+	}
+
+	console.log(
+		`Content type: ${contentType}, Length: ${contentLength}, Has many blocks: ${hasManyBlocks} -> Summary: ${summaryType} (${length})`
+	);
+	return { summaryType, length };
+}
+
+// Detect content type based on URL patterns and context
+function detectContentType(url, title = "") {
+	try {
+		const urlLower = url.toLowerCase();
+		const titleLower = title ? title.toLowerCase() : "";
+
+		// Check for email patterns
 		if (
-			hostname.includes("mail.google.com") ||
-			hostname.includes("outlook.com") ||
-			hostname.includes("mail.yahoo.com") ||
-			pathname.includes("/mail/") ||
+			urlLower.includes("mail.google.com") ||
+			urlLower.includes("outlook.live.com") ||
+			urlLower.includes("mail.yahoo.com") ||
+			urlLower.includes("mail.aol.com") ||
 			titleLower.includes("inbox") ||
-			titleLower.includes("email")
+			titleLower.includes("email") ||
+			titleLower.includes("mail")
 		) {
+			console.log("Detected content type: email");
 			return "email";
 		}
 
-		// Social media post detection
+		// Check for social media feeds (news feeds, timelines)
 		if (
-			hostname.includes("twitter.com") ||
-			hostname.includes("x.com") ||
-			hostname.includes("linkedin.com") ||
-			hostname.includes("facebook.com") ||
-			hostname.includes("instagram.com") ||
-			pathname.includes("/posts/") ||
-			pathname.includes("/status/") ||
-			pathname.includes("/p/") ||
-			titleLower.includes("post") ||
-			titleLower.includes("tweet") ||
-			titleLower.includes("status")
+			(urlLower.includes("twitter.com") || urlLower.includes("x.com")) &&
+			(urlLower.includes("/home") ||
+				urlLower.includes("/explore") ||
+				urlLower.includes("/following") ||
+				titleLower.includes("home") ||
+				titleLower.includes("following") ||
+				titleLower.includes("explore"))
 		) {
+			console.log("Detected content type: feed (Twitter/X)");
+			return "feed";
+		}
+
+		if (
+			urlLower.includes("linkedin.com") &&
+			(urlLower.includes("/feed") ||
+				titleLower.includes("feed") ||
+				titleLower.includes("linkedin") ||
+				urlLower.includes("/mynetwork"))
+		) {
+			console.log("Detected content type: feed (LinkedIn)");
+			return "feed";
+		}
+
+		if (
+			urlLower.includes("facebook.com") &&
+			(urlLower.includes("/home") ||
+				titleLower.includes("facebook") ||
+				urlLower.includes("/news"))
+		) {
+			console.log("Detected content type: feed (Facebook)");
+			return "feed";
+		}
+
+		// Check for individual social media posts
+		if (
+			(urlLower.includes("twitter.com") || urlLower.includes("x.com")) &&
+			urlLower.includes("/status/")
+		) {
+			console.log("Detected content type: post (Twitter/X)");
 			return "post";
 		}
 
-		// Default to article for web pages
+		if (
+			urlLower.includes("linkedin.com") &&
+			(urlLower.includes("/posts/") || urlLower.includes("/in/"))
+		) {
+			console.log("Detected content type: post (LinkedIn)");
+			return "post";
+		}
+
+		if (urlLower.includes("facebook.com") && urlLower.includes("/posts/")) {
+			console.log("Detected content type: post (Facebook)");
+			return "post";
+		}
+
+		// Default to article for other content
+		console.log("Detected content type: article (default)");
 		return "article";
 	} catch (error) {
-		// If URL parsing fails, default to article
-		console.warn("Failed to parse URL for content type detection:", error);
-		return "article";
+		console.error("Error in detectContentType:", error);
+		return "article"; // Fallback to article
 	}
 }
 
@@ -2994,7 +3172,7 @@ function extractPageContent() {
 }
 
 // Summarize text using available APIs
-async function summarizeText(text, summaryType = "teaser") {
+async function summarizeText(text, summaryType = "teaser", length = "medium") {
 	try {
 		// Get API provider settings
 		const settings = await chrome.storage.sync.get([
@@ -3012,8 +3190,10 @@ async function summarizeText(text, summaryType = "teaser") {
 					const session = await Summarizer.create({
 						type: summaryType,
 						format: "plain-text",
-						length: "medium",
+						length: length,
 						outputLanguage: "en",
+						expectedInputLanguages: ["en", "ja", "es"],
+						expectedContextLanguages: ["en"],
 					});
 
 					const summary = await session.summarize(text);
@@ -3030,11 +3210,11 @@ async function summarizeText(text, summaryType = "teaser") {
 
 		// Fallback to Gemini if available
 		if (settings.geminiApiTested && settings.geminiApiKey) {
-			return await summarizeWithGemini(text, summaryType);
+			return await summarizeWithGemini(text, summaryType, length);
 		}
 
 		if (provider === "gemini" && settings.geminiApiKey) {
-			return await summarizeWithGemini(text, summaryType);
+			return await summarizeWithGemini(text, summaryType, length);
 		}
 
 		// If no API is available, return error
@@ -3048,7 +3228,11 @@ async function summarizeText(text, summaryType = "teaser") {
 }
 
 // Summarize text using Gemini API
-async function summarizeWithGemini(text, summaryType = "teaser") {
+async function summarizeWithGemini(
+	text,
+	summaryType = "teaser",
+	length = "medium"
+) {
 	try {
 		const apiKey = await getGeminiApiKey();
 		if (!apiKey) {
@@ -3059,23 +3243,123 @@ async function summarizeWithGemini(text, summaryType = "teaser") {
 		const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 		let prompt = "";
+
+		// Create prompts based on summary type and length specifications
 		switch (summaryType) {
+			case "tldr":
+				// tldr: short (1 sentence), medium (3 sentences), long (5 sentences)
+				switch (length) {
+					case "short":
+						prompt = `Provide a TLDR summary of the following text in exactly 1 sentence:
+
+${text}
+
+TLDR:`;
+						break;
+					case "long":
+						prompt = `Provide a TLDR summary of the following text in exactly 5 sentences:
+
+${text}
+
+TLDR:`;
+						break;
+					case "medium":
+					default:
+						prompt = `Provide a TLDR summary of the following text in exactly 3 sentences:
+
+${text}
+
+TLDR:`;
+						break;
+				}
+				break;
+
+			case "teaser":
+				// teaser: short (1 sentence), medium (3 sentences), long (5 sentences)
+				switch (length) {
+					case "short":
+						prompt = `Create a teaser summary of the following text in exactly 1 sentence that draws the reader in:
+
+${text}
+
+Teaser:`;
+						break;
+					case "long":
+						prompt = `Create a teaser summary of the following text in exactly 5 sentences that draws the reader in:
+
+${text}
+
+Teaser:`;
+						break;
+					case "medium":
+					default:
+						prompt = `Create a teaser summary of the following text in exactly 3 sentences that draws the reader in:
+
+${text}
+
+Teaser:`;
+						break;
+				}
+				break;
+
 			case "key-points":
-				prompt = `Please summarize the following text by extracting the key points and main ideas. Present them as a bulleted list:
+				// key-points: short (3 bullet points), medium (5 bullet points), long (7 bullet points)
+				switch (length) {
+					case "short":
+						prompt = `Extract exactly 3 key points from the following text and present them as a bulleted list:
 
 ${text}
 
 Key Points:`;
+						break;
+					case "long":
+						prompt = `Extract exactly 7 key points from the following text and present them as a bulleted list:
+
+${text}
+
+Key Points:`;
+						break;
+					case "medium":
+					default:
+						prompt = `Extract exactly 5 key points from the following text and present them as a bulleted list:
+
+${text}
+
+Key Points:`;
+						break;
+				}
 				break;
+
 			case "headline":
-				prompt = `Please create a concise headline that captures the main idea of the following text:
+				// headline: short (12 words), medium (17 words), long (22 words)
+				switch (length) {
+					case "short":
+						prompt = `Create a headline that captures the main point of the following text in exactly 12 words or fewer:
 
 ${text}
 
 Headline:`;
+						break;
+					case "long":
+						prompt = `Create a headline that captures the main point of the following text in exactly 22 words or fewer:
+
+${text}
+
+Headline:`;
+						break;
+					case "medium":
+					default:
+						prompt = `Create a headline that captures the main point of the following text in exactly 17 words or fewer:
+
+${text}
+
+Headline:`;
+						break;
+				}
 				break;
-			case "teaser":
+
 			default:
+				// Fallback to teaser medium
 				prompt = `Please create a brief teaser summary (2-3 sentences) that captures the essence of the following text:
 
 ${text}

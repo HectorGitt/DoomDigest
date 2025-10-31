@@ -314,6 +314,8 @@ async function summarizeText(text) {
 			format: "plain-text",
 			length: "medium",
 			outputLanguage: "en",
+			expectedInputLanguages: ["en", "ja", "es"],
+			expectedContextLanguages: ["en"],
 		});
 		const summary = await session.summarize(text);
 		await session.destroy();

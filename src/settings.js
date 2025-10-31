@@ -430,6 +430,8 @@ document.addEventListener("DOMContentLoaded", async function () {
 					format: "plain-text",
 					length: "medium",
 					outputLanguage: "en",
+					expectedInputLanguages: ["en", "ja", "es"],
+					expectedContextLanguages: ["en"],
 					monitor(m) {
 						m.addEventListener("downloadprogress", (e) => {
 							console.log(
