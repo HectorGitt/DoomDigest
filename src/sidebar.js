@@ -289,6 +289,16 @@ function applyThemeToSidebar(theme) {
         background: #ffffff !important;
       }
 
+      .page-heading {
+        color: rgba(255, 255, 255, 0.7) !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+      }
+
+      .mode-indicator {
+        color: rgba(59, 130, 246, 0.9) !important;
+        background: rgba(59, 130, 246, 0.2) !important;
+      }
+
       #summary-type {
         background: rgba(255, 255, 255, 0.08) !important;
         color: #ffffff !important;
@@ -401,11 +411,23 @@ function applyThemeToSidebar(theme) {
 
     .loading-dots span {
       background: #333333 !important;
-    }      #summary-type {
-        background: rgba(0, 0, 0, 0.05) !important;
-        color: #333333 !important;
-        border-color: rgba(0, 0, 0, 0.2) !important;
-      }
+    }
+
+    .page-heading {
+      color: rgba(0, 0, 0, 0.5) !important;
+      background: rgba(0, 0, 0, 0.05) !important;
+    }
+
+    .mode-indicator {
+      color: rgba(59, 130, 246, 0.8) !important;
+      background: rgba(59, 130, 246, 0.1) !important;
+    }
+
+    #summary-type {
+      background: rgba(0, 0, 0, 0.05) !important;
+      color: #333333 !important;
+      border-color: rgba(0, 0, 0, 0.2) !important;
+    }
 
       #clear-btn {
         background: rgba(239, 68, 68, 0.1) !important;
