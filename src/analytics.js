@@ -73,34 +73,6 @@ async function saveAnalyticsToIndexedDB(analyticsData) {
 	}
 }
 
-// Clean up empty analytics reports from IndexedDB
-async function cleanupEmptyAnalyticsReports(allReports, validReports) {
-	try {
-		const validIds = new Set(validReports.map((r) => r.id));
-		const emptyReports = allReports.filter((r) => !validIds.has(r.id));
-
-		if (emptyReports.length === 0) return;
-
-		const db = await initAnalyticsIndexedDB();
-		const transaction = db.transaction(["analytics"], "readwrite");
-		const store = transaction.objectStore("analytics");
-
-		for (const report of emptyReports) {
-			await new Promise((resolve, reject) => {
-				const deleteRequest = store.delete(report.id);
-				deleteRequest.onsuccess = () => resolve();
-				deleteRequest.onerror = () => reject(deleteRequest.error);
-			});
-		}
-
-		console.log(
-			`Cleaned up ${emptyReports.length} empty analytics reports from IndexedDB`
-		);
-	} catch (error) {
-		console.error("Error cleaning up empty analytics reports:", error);
-	}
-}
-
 // Load analytics from IndexedDB
 async function loadAnalyticsFromIndexedDB() {
 	try {
@@ -126,8 +98,6 @@ async function loadAnalyticsFromIndexedDB() {
 							analytics.length - validAnalytics.length
 						} empty/invalid analytics reports`
 					);
-					// Clean up empty reports in the background
-					cleanupEmptyAnalyticsReports(analytics, validAnalytics);
 				}
 
 				resolve(validAnalytics);

@@ -100,9 +100,6 @@ async function loadSummariesFromIndexedDB() {
 					"items"
 				);
 
-				// Migrate existing digests to add type field if missing
-				summaries = migrateDigestTypes(summaries);
-
 				resolve(summaries);
 			};
 			request.onerror = () => {
@@ -120,46 +117,6 @@ async function loadSummariesFromIndexedDB() {
 		);
 		return [];
 	}
-}
-
-// Migrate existing digests to add type field based on their properties
-function migrateDigestTypes(summaries) {
-	let migrated = false;
-
-	summaries.forEach((summary) => {
-		if (!summary.type) {
-			migrated = true;
-			// Determine type based on existing properties
-			if (summary.isSelectedText) {
-				if (summary.mode === "explain") {
-					summary.type = "explained";
-				} else if (summary.mode === "simplify") {
-					summary.type = "simplified";
-				} else if (summary.isRawText) {
-					summary.type = "raw-text";
-				} else {
-					summary.type = "selected-text";
-				}
-			} else {
-				summary.type = "article";
-			}
-		}
-	});
-
-	if (migrated) {
-		console.log(
-			"Background: Migrated existing digests to include type field"
-		);
-		// Save the migrated data back to IndexedDB
-		saveSummariesToIndexedDB(summaries).catch((error) => {
-			console.error(
-				"Background: Failed to save migrated digests:",
-				error
-			);
-		});
-	}
-
-	return summaries;
 }
 
 // Create context menu items
@@ -2692,52 +2649,6 @@ function formatDuration(milliseconds) {
 		return `${minutes}m ${seconds % 60}s`;
 	} else {
 		return `${seconds}s`;
-	}
-}
-
-// Helper function to save summaries with quota management
-async function saveSummariesWithQuotaManagement(summaries) {
-	try {
-		await chrome.storage.sync.set({ summaries: summaries });
-	} catch (error) {
-		if (error.message && error.message.includes("QUOTA_BYTES_PER_ITEM")) {
-			console.warn(
-				"Storage quota exceeded, attempting aggressive cleanup..."
-			);
-
-			// More aggressive cleanup: keep only the most recent 20 summaries
-			const trimmedSummaries = summaries
-				.sort((a, b) => b.timestamp - a.timestamp) // Sort by newest first
-				.slice(0, 20) // Keep only 20 most recent
-				.map((summary) => ({
-					...summary,
-					summary: summary.summary
-						? summary.summary.slice(0, 2000)
-						: "", // Truncate summary to 2KB max
-					title: summary.title ? summary.title.slice(0, 100) : "", // Truncate title to 100 chars
-					url: summary.url ? summary.url.slice(0, 500) : "", // Truncate URL to 500 chars
-					originalText: summary.originalText
-						? summary.originalText.slice(0, 1000)
-						: undefined, // Truncate original text
-				}));
-
-			try {
-				await chrome.storage.sync.set({ summaries: trimmedSummaries });
-				console.log(
-					"Successfully saved summaries after aggressive cleanup (kept 20 most recent, truncated content)"
-				);
-			} catch (retryError) {
-				console.error(
-					"Failed to save even after aggressive cleanup:",
-					retryError
-				);
-				throw new Error(
-					"Storage quota exceeded. Please clear some old summaries from your digest."
-				);
-			}
-		} else {
-			throw error;
-		}
 	}
 }
 
