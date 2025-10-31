@@ -1,12 +1,29 @@
 # DoomDigest
 
-AI-powered Chrome extension for automatic article summarization, productivity analytics, and content management using Chrome's built-in AI APIs and Google Drive integration.
+### 🤖 AI-Powered Summarization
+
+-   **Smart Content Detection**: Automatically detects articles, emails, social media posts, and feeds
+-   **Multiple AI Providers**: Choose between Chrome's built-in AI or Google Gemini API
+-   **Advanced Summary Types**: Key-points, headlines, teasers, and TLDR formats with length control
+-   **Multi-Language Support**: Processes content in English, Japanese, and Spanish
+-   **Intelligent Length Adaptation**: Automatically adjusts summary length based on content type and complexity
+-   **Real-time Processing**: Instant summarization as you browsewered Chrome extension for automatic article summarization, productivity analytics, and content management using Chrome's built-in AI APIs and Google Drive integration.
+
+## 🚀 Recent Updates
+
+### v1.1.0 - Enhanced Content Intelligence
+
+-   **Smart Content Type Detection**: Automatically identifies and optimizes summarization for emails, social media posts, articles, and feeds
+-   **Improved Auto-Snap**: Enhanced deduplication system prevents duplicate processing
+-   **Advanced Summarization**: Length-controlled summaries with multi-language support (English, Japanese, Spanish)
+-   **Enhanced UI**: New content type badges and improved filtering in digest view
+-   **Intelligent Processing**: Adapts summary format based on content complexity and length
 
 ## ✨ Features
 
 ### 🤖 AI-Powered Summarization
 
--   **Smart Content Detection**: Automatically detects articles vs. social media feeds
+-   **Smart Content Detection**: Automatically detects articles, emails, social media posts, and feeds
 -   **Multiple AI Providers**: Choose between Chrome's built-in AI or Google Gemini API
 -   **Summary Types**: Key-points, headlines, teasers, and custom formats
 -   **Real-time Processing**: Instant summarization as you browse
@@ -27,8 +44,9 @@ AI-powered Chrome extension for automatic article summarization, productivity an
 
 ### 🎯 Smart Features
 
--   **Auto-Snap**: Automatic summarization based on content length and time intervals
--   **Content Deduplication**: Intelligent detection of already-processed content
+-   **Auto-Snap**: Automatic summarization based on content length and time intervals with intelligent deduplication
+-   **Content Deduplication**: Intelligent detection of already-processed content with daily hash resets
+-   **Content Type Detection**: Automatically identifies emails, social media posts, articles, and feeds
 -   **Theme Adaptation**: Automatically adapts to website color schemes (dark/light themes)
 -   **State Preservation**: Loading states persist across page refreshes
 
@@ -99,7 +117,7 @@ AI-powered Chrome extension for automatic article summarization, productivity an
 
 1. **Open Any Webpage**
 
-    - Navigate to an article, blog post, or content-rich page
+    - Navigate to an article, blog post, email, or social media content
 
 2. **Open DoomDigest Sidebar**
 
@@ -109,12 +127,22 @@ AI-powered Chrome extension for automatic article summarization, productivity an
 3. **Start Summarization**
 
     - Click "Start PagePulse" to begin automatic content detection
-    - Watch as summaries appear in real-time, grouped by website
+    - Watch as summaries appear in real-time, grouped by website and content type
 
 4. **Interact with Summaries**
     - Click any summary to jump to the original content
     - Use "Stop All" to halt processing
     - Toggle "Auto Snap" for automatic summarization
+
+#### Supported Content Types
+
+DoomDigest automatically detects and optimizes summarization for different content types:
+
+-   **📄 Articles**: Blog posts, news articles, documentation - summarized with key points (3-7 bullet points based on length)
+-   **📧 Emails**: Gmail, Outlook, Yahoo mail - summarized with TLDR format (1-5 sentences based on length)
+-   **📱 Social Posts**: Twitter/X, LinkedIn, Facebook, Instagram posts - summarized with teaser format (1-5 sentences)
+-   **📰 Social Feeds**: News feeds and timelines - summarized with key points overview (3-7 bullet points)
+-   **📝 Selected Text**: User-selected content - intelligently summarized based on length and context
 
 ### Advanced Features
 
@@ -168,6 +196,7 @@ AI-powered Chrome extension for automatic article summarization, productivity an
 -   Coordinates communication between all components
 -   Handles Google Drive authentication and sync
 -   Manages alarms for auto-run analytics
+-   **Content Type Detection**: Intelligently identifies emails, posts, articles, and feeds for optimized summarization
 
 #### Content Script (`content.js`)
 
@@ -300,6 +329,7 @@ npm start        # Alias for build
 -   Check if content was already processed
 -   Verify AI provider is configured correctly
 -   Try switching between Chrome AI and Gemini
+-   **Content Type Issues**: If content type is misidentified, summaries may use incorrect format (check digest view for content type badges)
 
 #### Google Drive Sync Issues
 
