@@ -520,7 +520,6 @@ class DigestManager {
 							<span class="material-icons">web</span>
 							${siteName}
 						</div>
-						<span class="card-type ${typeClass}">${typeLabel}</span>
 					</div>
 				</div>
 				<div class="card-content">
@@ -572,7 +571,9 @@ class DigestManager {
 	getTypeLabel(type) {
 		const labels = {
 			article: "Article",
-			"selected-text": "Selected",
+			email: "Email",
+			post: "Post",
+			chunk: "Chunk",
 			"raw-text": "Raw Text",
 			explained: "Explained",
 			simplified: "Simplified",
@@ -774,7 +775,6 @@ class DigestManager {
 				digest.timestamp
 			).toLocaleString()}\n`;
 			exportText += `   URL: ${digest.url || "N/A"}\n`;
-			exportText += `   Type: ${this.getTypeLabel(digest.type)}\n`;
 			exportText += `   Content:\n   ${
 				digest.summary || "No content"
 			}\n\n`;

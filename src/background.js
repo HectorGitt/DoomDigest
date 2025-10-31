@@ -1288,6 +1288,9 @@ async function handlePageSnap(
 			title || mainContent.title || document.title || "Page Summary";
 		const elementLink = mainContent.elementLink || url;
 
+		// Determine content type based on URL and context
+		const contentType = detectContentType(url, title);
+
 		// Summarize the content
 		const text = normalizedText.slice(0, 2000); // Limit for API
 		const summary = await summarizeText(text, summaryType);
@@ -1307,7 +1310,7 @@ async function handlePageSnap(
 				elementLink: elementLink.slice(0, 500), // Truncate elementLink to 500 chars
 				timestamp: Date.now(),
 				contentHash: contentHash,
-				type: "article", // Page snap creates article-type digest
+				type: contentType, // Use detected content type instead of hardcoded "article"
 			}; // Add to storage
 			const updatedSummaries = [...existingSummaries, summaryData];
 			await saveSummariesToIndexedDB(updatedSummaries);
@@ -1375,9 +1378,9 @@ async function handleAddSelectedTextRaw(selectedText, url, title) {
 					: selectedText,
 			url: url.slice(0, 500), // Truncate URL to 500 chars
 			title:
-				`Selected Text: ${summaryTitle}`.length > 100
-					? `Selected Text: ${summaryTitle.slice(0, 80)}...`
-					: `Selected Text: ${summaryTitle}`,
+				summaryTitle.length > 100
+					? summaryTitle.slice(0, 100) + "..."
+					: summaryTitle,
 			elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
 			timestamp: Date.now(),
 			contentHash: contentHash,
@@ -1449,9 +1452,9 @@ async function handleAddSelectedTextSummarized(selectedText, url, title) {
 						: summary,
 				url: url.slice(0, 500), // Truncate URL to 500 chars
 				title:
-					`Selected Text: ${summaryTitle}`.length > 100
-						? `Selected Text: ${summaryTitle.slice(0, 80)}...`
-						: `Selected Text: ${summaryTitle}`,
+					summaryTitle.length > 100
+						? summaryTitle.slice(0, 100) + "..."
+						: summaryTitle,
 				elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
 				timestamp: Date.now(),
 				contentHash: contentHash,
@@ -1460,7 +1463,7 @@ async function handleAddSelectedTextSummarized(selectedText, url, title) {
 					selectedText.length > 1000
 						? selectedText.slice(0, 1000) + "..."
 						: selectedText, // Keep original text for reference (truncated to 1KB)
-				type: "selected-text", // Summarized selected text type
+				type: "chunk", // Summarized selected text type
 			};
 
 			// Add to storage
@@ -1546,9 +1549,9 @@ async function handleExplainSelectedText(selectedText, url, title) {
 						: explanation,
 				url: url.slice(0, 500), // Truncate URL to 500 chars
 				title:
-					`Explanation: ${summaryTitle}`.length > 100
-						? `Explanation: ${summaryTitle.slice(0, 80)}...`
-						: `Explanation: ${summaryTitle}`,
+					summaryTitle.length > 100
+						? summaryTitle.slice(0, 100) + "..."
+						: summaryTitle,
 				elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
 				timestamp: Date.now(),
 				contentHash: contentHash,
@@ -1644,9 +1647,9 @@ async function handleSimplifySelectedText(selectedText, url, title) {
 						: simplified,
 				url: url.slice(0, 500), // Truncate URL to 500 chars
 				title:
-					`Simplified: ${summaryTitle}`.length > 100
-						? `Simplified: ${summaryTitle.slice(0, 80)}...`
-						: `Simplified: ${summaryTitle}`,
+					summaryTitle.length > 100
+						? summaryTitle.slice(0, 100) + "..."
+						: summaryTitle,
 				elementLink: url.slice(0, 500), // Truncate elementLink to 500 chars
 				timestamp: Date.now(),
 				contentHash: contentHash,
@@ -2540,16 +2543,16 @@ async function showAiInsightNotification(operation, title) {
 		let message;
 		switch (operation) {
 			case "summarized":
-				message = `"${title}" has been summarized and added to your digest`;
+				message = `"${title}" has been added to your digest`;
 				break;
 			case "explained":
-				message = `"${title}" has been explained and added to your digest`;
+				message = `"${title}" has been added to your digest`;
 				break;
 			case "simplified":
-				message = `"${title}" has been simplified and added to your digest`;
+				message = `"${title}" has been added to your digest`;
 				break;
 			default:
-				message = `AI operation completed for "${title}"`;
+				message = `"${title}" has been added to your digest`;
 		}
 
 		await chrome.notifications.create({
@@ -2649,6 +2652,52 @@ function formatDuration(milliseconds) {
 		return `${minutes}m ${seconds % 60}s`;
 	} else {
 		return `${seconds}s`;
+	}
+}
+
+// Helper function to detect content type based on URL and title
+function detectContentType(url, title) {
+	try {
+		const urlObj = new URL(url);
+		const hostname = urlObj.hostname.toLowerCase();
+		const pathname = urlObj.pathname.toLowerCase();
+		const titleLower = (title || "").toLowerCase();
+
+		// Email detection
+		if (
+			hostname.includes("mail.google.com") ||
+			hostname.includes("outlook.com") ||
+			hostname.includes("mail.yahoo.com") ||
+			pathname.includes("/mail/") ||
+			titleLower.includes("inbox") ||
+			titleLower.includes("email")
+		) {
+			return "email";
+		}
+
+		// Social media post detection
+		if (
+			hostname.includes("twitter.com") ||
+			hostname.includes("x.com") ||
+			hostname.includes("linkedin.com") ||
+			hostname.includes("facebook.com") ||
+			hostname.includes("instagram.com") ||
+			pathname.includes("/posts/") ||
+			pathname.includes("/status/") ||
+			pathname.includes("/p/") ||
+			titleLower.includes("post") ||
+			titleLower.includes("tweet") ||
+			titleLower.includes("status")
+		) {
+			return "post";
+		}
+
+		// Default to article for web pages
+		return "article";
+	} catch (error) {
+		// If URL parsing fails, default to article
+		console.warn("Failed to parse URL for content type detection:", error);
+		return "article";
 	}
 }
 

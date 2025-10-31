@@ -340,7 +340,15 @@
 	background: #e8f5e8;
 	color: #2e7d32;
 }
-.card-type.selected-text {
+.card-type.email {
+	background: #e3f2fd;
+	color: #1565c0;
+}
+.card-type.post {
+	background: #f3e5f5;
+	color: #6a1b9a;
+}
+.card-type.chunk {
 	background: #fff3e0;
 	color: #ef6c00;
 }

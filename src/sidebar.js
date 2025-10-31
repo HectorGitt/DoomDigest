@@ -983,8 +983,11 @@ chrome.runtime.onMessage.addListener((msg) => {
 			}
 		}
 
+		// Extract summary data from message (exclude the type property)
+		const { type, ...summaryData } = msg;
+
 		// Add to summaries array
-		summaries.push(msg);
+		summaries.push(summaryData);
 
 		// Store summaries persistently in IndexedDB
 		saveSummariesToIndexedDB(summaries)
