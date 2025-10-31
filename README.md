@@ -304,6 +304,42 @@ npm start        # Alias for build
 3. Authorize the extension
 4. Configure sync preferences
 
+#### For Developers: Setting up Google Drive Sync
+
+To enable Google Drive synchronization, you need to configure OAuth credentials:
+
+1. **Create a Google Cloud Console Project**
+
+    - Visit [Google Cloud Console](https://console.cloud.google.com/)
+    - Create a new project or select an existing one
+
+2. **Enable Google Drive API**
+
+    - Go to "APIs & Services" > "Library"
+    - Search for "Google Drive API" and enable it
+
+3. **Configure OAuth Consent Screen**
+
+    - Go to "APIs & Services" > "OAuth consent screen"
+    - Choose "External" user type
+    - Fill in required information (app name, user support email, developer contact)
+    - Add your email as a test user
+
+4. **Create OAuth 2.0 Client ID**
+
+    - Go to "APIs & Services" > "Credentials"
+    - Click "Create Credentials" > "OAuth 2.0 Client ID"
+    - Choose "Chrome Extension" as application type
+    - Enter your Chrome Extension ID (found in `chrome://extensions/`)
+    - Copy the generated Client ID
+
+5. **Update Manifest**
+    - Replace the `client_id` in `src/manifest.json` with your new Client ID
+    - Rebuild the extension: `npm run build`
+    - Reload the extension in Chrome
+
+**Note**: The extension uses the scope `https://www.googleapis.com/auth/drive.file` for creating and managing files in a dedicated DoomDigest folder.
+
 ## 🔒 Privacy & Security
 
 -   **Local Processing**: All AI operations happen in your browser
