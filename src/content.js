@@ -878,6 +878,30 @@ async function performAutoSnap() {
 		return;
 	}
 
+	// Extract page content for deduplication check
+	const contentBlocks = extractReadableContent();
+	if (!contentBlocks || contentBlocks.length === 0) {
+		console.log(
+			"Auto-snap cancelled: no content found for deduplication check"
+		);
+		pageSnapped = true; // Mark as snapped to prevent further attempts
+		return;
+	}
+
+	// Use the first (most relevant) content block for hashing
+	const mainContent = contentBlocks[0];
+	const normalizedText = normalizeText(mainContent.text);
+	const contentHash = hashString(normalizedText);
+
+	// Check if content already processed
+	if (processedContentHashes.has(contentHash)) {
+		console.log(
+			"Auto-snap cancelled: content already processed (duplicate)"
+		);
+		pageSnapped = true; // Mark as snapped to prevent further attempts
+		return;
+	}
+
 	try {
 		console.log(
 			`Auto-snapping page after ${autoSnapDuration} seconds of activity`
@@ -892,18 +916,33 @@ async function performAutoSnap() {
 			url: location.href,
 			title: document.title,
 			summaryType: summaryType,
+			isAutoSnap: true, // Flag to indicate this is an automatic snap
 		});
 
 		if (response && response.success) {
 			console.log("Auto-snap completed successfully");
+			// Add content hash to processed set and persist
+			processedContentHashes.add(contentHash);
+			// Update persistent storage
+			try {
+				await chrome.runtime.sendMessage({
+					type: "UPDATE_PROCESSED_HASHES",
+					contentHash: contentHash,
+				});
+			} catch (e) {
+				console.warn("Failed to update persistent hashes:", e);
+			}
 		} else {
-			console.error("Auto-snap failed:", response?.error);
+			const errorMsg = response?.error || "Unknown error";
+			console.error("Auto-snap failed:", errorMsg);
 			// Reset flag on failure so user can try manual snap
 			pageSnapped = false;
+			// Don't show error notification for auto-snap failures to avoid spam
 		}
 	} catch (error) {
 		console.error("Auto-snap failed:", error);
 		// Reset flag on failure so user can try manual snap
 		pageSnapped = false;
+		// Don't show error notification for auto-snap failures to avoid spam
 	}
 }

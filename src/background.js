@@ -389,7 +389,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 			request.url,
 			request.title,
 			request.summaryType,
-			request.tabId
+			sender.tab?.id,
+			request.isAutoSnap || false
 		)
 			.then((result) => {
 				sendResponse(result);
@@ -730,6 +731,44 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 				sendResponse({ success: false, error: error.message });
 			});
 		return true; // Keep message channel open for async response
+	} else if (request.type === "UPDATE_PROCESSED_HASHES") {
+		// Handle updating processed content hashes from content script
+		try {
+			// Get current processedContentHashes from storage
+			chrome.storage.sync.get(["processedContentHashes"], (result) => {
+				let hashes = new Set(result.processedContentHashes || []);
+				hashes.add(request.contentHash);
+
+				// Update storage with new hash
+				chrome.storage.sync.set(
+					{
+						processedContentHashes: Array.from(hashes),
+					},
+					() => {
+						if (chrome.runtime.lastError) {
+							console.error(
+								"Failed to update processedContentHashes:",
+								chrome.runtime.lastError
+							);
+							sendResponse({
+								success: false,
+								error: chrome.runtime.lastError.message,
+							});
+						} else {
+							console.log(
+								"Updated processedContentHashes with new hash:",
+								request.contentHash
+							);
+							sendResponse({ success: true });
+						}
+					}
+				);
+			});
+		} catch (error) {
+			console.error("Error updating processedContentHashes:", error);
+			sendResponse({ success: false, error: error.message });
+		}
+		return true; // Keep message channel open for async response
 	} else if (request.type === "STORE_SUMMARY_LOCALLY") {
 		// Handle local summary storage request from content script
 		try {
@@ -810,6 +849,26 @@ chrome.storage.sync.get(["autoAnalyticsSettings"], (result) => {
 		console.error("Error restoring auto-analytics alarm:", error);
 	}
 });
+
+// Set up daily hash reset alarm (runs at midnight every day)
+(function setupDailyHashResetAlarm() {
+	try {
+		const now = new Date();
+		const midnight = new Date(now);
+		midnight.setHours(24, 0, 0, 0); // Next midnight
+
+		chrome.alarms.create("dailyHashReset", {
+			when: midnight.getTime(),
+			periodInMinutes: 24 * 60, // Repeat daily
+		});
+		console.log(
+			"Set up daily hash reset alarm for:",
+			midnight.toISOString()
+		);
+	} catch (error) {
+		console.error("Error setting up daily hash reset alarm:", error);
+	}
+})();
 
 // Handle alarm triggers for auto-sync
 chrome.alarms.onAlarm.addListener(async (alarm) => {
@@ -1047,6 +1106,28 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 	}
 });
 
+// Handle alarm triggers for daily hash reset
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+	if (alarm.name === "dailyHashReset") {
+		try {
+			console.log(
+				"Daily hash reset alarm triggered, clearing processedContentHashes"
+			);
+
+			// Clear the processed content hashes
+			await chrome.storage.sync.set({
+				processedContentHashes: [],
+			});
+
+			console.log(
+				"Processed content hashes cleared for fresh content detection"
+			);
+		} catch (error) {
+			console.error("Daily hash reset error:", error);
+		}
+	}
+});
+
 // Helper function to get time filter from settings
 function getTimeFilterFromSettings(settings) {
 	const period = settings.timePeriod;
@@ -1231,7 +1312,8 @@ async function handlePageSnap(
 	url,
 	title,
 	summaryType = "teaser",
-	tabId = null
+	tabId = null,
+	isAutoSnap = false
 ) {
 	try {
 		// Send loading start message to sidebar
@@ -1244,6 +1326,9 @@ async function handlePageSnap(
 		let pageContent = null;
 		if (tabId) {
 			try {
+				console.log(
+					`Attempting to extract content from tab ${tabId} for URL: ${url}`
+				);
 				// Inject content extraction script into the tab
 				const results = await chrome.scripting.executeScript({
 					target: { tabId: tabId },
@@ -1251,10 +1336,17 @@ async function handlePageSnap(
 				});
 				if (results && results[0] && results[0].result) {
 					pageContent = results[0].result;
+					console.log(
+						`Content extraction successful, found ${pageContent.length} content blocks`
+					);
+				} else {
+					console.warn("Content extraction returned no results");
 				}
 			} catch (error) {
 				console.warn("Failed to extract content from tab:", error);
 			}
+		} else {
+			console.warn("No tabId provided for content extraction");
 		}
 
 		if (!pageContent || pageContent.length === 0) {
@@ -1265,8 +1357,15 @@ async function handlePageSnap(
 		const mainContent = pageContent[0];
 		const normalizedText = normalizeText(mainContent.text);
 
-		// Check if content is substantial enough
-		if (normalizedText.length < 100) {
+		// Check if content is substantial enough - be more lenient for auto-snap
+		// Accept content with at least 50 characters or 100 words
+		const wordCount = normalizedText.split(/\s+/).length;
+		const hasEnoughContent = normalizedText.length >= 50 || wordCount >= 10;
+
+		if (!hasEnoughContent) {
+			console.warn(
+				`Content too short for page snap: ${normalizedText.length} chars, ${wordCount} words`
+			);
 			throw new Error("Content too short for page snap");
 		}
 
@@ -1335,11 +1434,13 @@ async function handlePageSnap(
 				// Ignore if no listeners
 			}
 
-			// Show notification
-			await showToastNotification(
-				"Page Snapped",
-				`"${pageTitle}" has been added to your digest`
-			);
+			// Show notification only for manual snaps
+			if (!isAutoSnap) {
+				await showToastNotification(
+					"Page Snapped",
+					`"${pageTitle}" has been added to your digest`
+				);
+			}
 
 			return { success: true, message: "Page snapped successfully" };
 		} else {
@@ -2717,7 +2818,16 @@ function normalizeText(text) {
 
 // Function to extract page content (injected into tabs)
 function extractPageContent() {
-	// Try to find main article content
+	console.log("=== Starting content extraction ===");
+	console.log("Page title:", document.title);
+	console.log("Page URL:", location.href);
+	console.log("Body exists:", !!document.body);
+	console.log(
+		"Body text length:",
+		document.body ? document.body.innerText.length : 0
+	);
+
+	// Try to find main article content - be more lenient for auto-snap
 	const selectors = [
 		"article",
 		'[role="article"]',
@@ -2727,11 +2837,31 @@ function extractPageContent() {
 		".story-body",
 		"main article",
 		"main .content",
+		".content",
+		"#content",
+		".post",
+		".article",
+		"[data-testid='article-body']",
+		"[data-testid='post-content']",
+		".article-body",
+		".post-body",
 	];
 
+	console.log("Trying primary selectors...");
 	for (const selector of selectors) {
 		const element = document.querySelector(selector);
-		if (element && element.innerText.trim().length > 200) {
+		const textLength = element ? element.innerText.trim().length : 0;
+		console.log(`Selector "${selector}": ${textLength} characters`);
+
+		if (element && textLength > 100) {
+			// Reduced from 200 to 100 for auto-snap
+			console.log(
+				`✓ Found content using selector: ${selector}, length: ${textLength}`
+			);
+			console.log(
+				"Content preview:",
+				element.innerText.trim().substring(0, 200) + "..."
+			);
 			return [
 				{
 					text: element.innerText.trim(),
@@ -2743,21 +2873,92 @@ function extractPageContent() {
 		}
 	}
 
-	// Fallback: find largest text block
-	const textBlocks = Array.from(document.querySelectorAll("p, div, section"))
-		.map((el) => ({
-			text: el.innerText.trim(),
-			element: el,
-			title: extractTitle(el),
-			elementLink: extractElementLink(el),
-		}))
+	console.log("No content found with primary selectors, trying fallback...");
+
+	// Fallback: find largest text block - be more lenient for auto-snap
+	const allElements = Array.from(
+		document.querySelectorAll("p, div, section, span")
+	);
+	console.log(`Found ${allElements.length} total elements to check`);
+
+	const textBlocks = allElements
+		.map((el) => {
+			const text = el.innerText.trim();
+			const wordCount = text.split(/\s+/).length;
+			const charCount = text.length;
+			return {
+				text: text,
+				element: el,
+				title: extractTitle(el),
+				elementLink: extractElementLink(el),
+				wordCount: wordCount,
+				charCount: charCount,
+				tagName: el.tagName.toLowerCase(),
+				className: el.className || "no-class",
+			};
+		})
 		.filter((block) => {
-			const wordCount = block.text.split(/\s+/).length;
-			return wordCount > 50 && wordCount < 2000;
+			const text = block.text;
+			const wordCount = text.split(/\s+/).length;
+			const charCount = text.length;
+			// Be more lenient: accept blocks with 20+ words OR 200+ characters
+			const passesFilter =
+				(wordCount >= 20 && wordCount < 3000) ||
+				(charCount >= 200 && charCount < 10000);
+			if (passesFilter) {
+				console.log(
+					`✓ Block accepted: ${block.tagName}.${block.className} - ${wordCount} words, ${charCount} chars`
+				);
+				console.log("  Preview:", text.substring(0, 100) + "...");
+			}
+			return passesFilter;
 		})
 		.sort((a, b) => b.text.length - a.text.length);
 
-	return textBlocks.slice(0, 3); // Return top 3 largest blocks
+	console.log(
+		`Found ${textBlocks.length} potential content blocks via fallback`
+	);
+
+	// If we found some blocks, return them
+	if (textBlocks.length > 0) {
+		console.log("Returning top content blocks:");
+		textBlocks.slice(0, 3).forEach((block, i) => {
+			console.log(
+				`  ${i + 1}. ${block.wordCount} words, ${block.charCount} chars`
+			);
+			console.log(`     Title: ${block.title}`);
+		});
+		return textBlocks.slice(0, 3); // Return top 3 largest blocks
+	}
+
+	console.log(
+		"No suitable content blocks found, trying body text as last resort..."
+	);
+
+	// Last resort: try to get content from the entire body, but clean it up
+	const bodyText = document.body ? document.body.innerText.trim() : "";
+	console.log(`Body text length: ${bodyText.length}`);
+
+	if (bodyText.length > 500) {
+		// Only if substantial content
+		console.log(
+			`Using body text as last resort, length: ${bodyText.length}`
+		);
+		console.log("Body text preview:", bodyText.substring(0, 300) + "...");
+		return [
+			{
+				text: bodyText.slice(0, 5000), // Limit to reasonable size
+				element: document.body,
+				title: document.title || "Page Content",
+				elementLink: location.href,
+			},
+		];
+	}
+
+	// If all else fails, return empty array
+	console.log("No suitable content found on page - returning empty array");
+	console.log("=== Content extraction complete ===");
+	return [];
 
 	function extractTitle(el) {
 		// Try to find a heading within or near the element
