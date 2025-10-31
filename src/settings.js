@@ -143,12 +143,6 @@ document.addEventListener("DOMContentLoaded", async function () {
 	exportMdBtn.addEventListener("click", () => exportDigest("md"));
 	exportJsonBtn.addEventListener("click", () => exportDigest("json"));
 
-	// Analytics page button
-	const openAnalyticsPageBtn = document.getElementById("open-analytics-page");
-	openAnalyticsPageBtn.addEventListener("click", () => {
-		chrome.tabs.create({ url: chrome.runtime.getURL("analytics.html") });
-	});
-
 	// Remove key button
 	removeGeminiKeyBtn.addEventListener("click", removeGeminiKey);
 
