@@ -9,16 +9,6 @@
 -   **Intelligent Length Adaptation**: Automatically adjusts summary length based on content type and complexity
 -   **Real-time Processing**: Instant summarization as you browsewered Chrome extension for automatic article summarization, productivity analytics, and content management using Chrome's built-in AI APIs and Google Drive integration.
 
-## 🚀 Recent Updates
-
-### v1.1.0 - Enhanced Content Intelligence
-
--   **Smart Content Type Detection**: Automatically identifies and optimizes summarization for emails, social media posts, articles, and feeds
--   **Improved Auto-Snap**: Enhanced deduplication system prevents duplicate processing
--   **Advanced Summarization**: Length-controlled summaries with multi-language support (English, Japanese, Spanish)
--   **Enhanced UI**: New content type badges and improved filtering in digest view
--   **Intelligent Processing**: Adapts summary format based on content complexity and length
-
 ## ✨ Features
 
 ### 🤖 AI-Powered Summarization
