@@ -427,7 +427,7 @@ MIT License - see [LICENSE](LICENSE) file for details
 -   Built using Chrome's AI APIs and Google Generative AI
 -   Material Design Icons for consistent UI
 -   Chrome Extensions community for inspiration
--   Contributors and beta testers
+-   Beta testers
 
 ## 📞 Support
 
