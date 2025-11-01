@@ -5,7 +5,6 @@
 -   **Smart Content Detection**: Automatically detects articles, emails, social media posts, and feeds
 -   **Multiple AI Providers**: Choose between Chrome's built-in AI or Google Gemini API
 -   **Advanced Summary Types**: Key-points, headlines, teasers, and TLDR formats with length control
--   **Multi-Language Support**: Processes content in English, Japanese, and Spanish
 -   **Intelligent Length Adaptation**: Automatically adjusts summary length based on content type and complexity
 -   **Real-time Processing**: Instant summarization as you browsewered Chrome extension for automatic article summarization, productivity analytics, and content management using Chrome's built-in AI APIs and Google Drive integration.
 
